@@ -82,6 +82,7 @@ model School {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  products        Product[]
   userRoles       UserSchoolRole[]
   students        Student[]
   inventoryStocks InventoryStock[]
@@ -170,6 +171,7 @@ model Student {
 
 model Product {
   id          String    @id @default(cuid())
+  schoolId    String
   name        String
   category    String?
   description String?
@@ -178,8 +180,11 @@ model Product {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
+  school   School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   variants ProductVariant[]
 
+  @@unique([schoolId, name])
+  @@index([schoolId])
   @@index([name])
   @@index([category])
   @@map("products")
