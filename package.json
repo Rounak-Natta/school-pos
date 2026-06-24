@@ -4,14 +4,33 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:format": "prisma format",
+    "db:reset": "prisma migrate reset",
+    "db:seed": "tsx prisma/seed.ts",
+    "import:opening-stock": "tsx prisma/import-opening-stock.ts"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "exceljs": "^4.4.0",
+    "jose": "^6.2.3",
+    "lucide-react": "^1.21.0",
     "next": "16.2.9",
+    "pg": "^8.22.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -21,7 +40,9 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "prisma": "^7.8.0",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }

@@ -1,0 +1,439 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  SCHOOL_ADMIN
+  INVENTORY_MANAGER
+  CASHIER
+  ACCOUNTANT
+  AUDITOR
+  DATA_ENTRY
+}
+
+enum StockMovementType {
+  OPENING_STOCK
+  PURCHASE
+  SALE
+  SALE_RETURN
+  TRANSFER_OUT
+  TRANSFER_IN
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  DAMAGED
+  LOST
+}
+
+enum TransferStatus {
+  DRAFT
+  REQUESTED
+  APPROVED
+  DISPATCHED
+  IN_TRANSIT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PAID
+  PARTIALLY_PAID
+  CANCELLED
+  RETURNED
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  CARD
+  BANK_TRANSFER
+  OTHER
+}
+
+enum ImportType {
+  STUDENTS
+  PRODUCTS
+  STOCK
+}
+
+enum ImportStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+model School {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  address   String?
+  phone     String?
+  email     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userRoles       UserSchoolRole[]
+  students        Student[]
+  inventoryStocks InventoryStock[]
+  stockMovements  StockMovement[]
+  transfersFrom   Transfer[]       @relation("TransferFromSchool")
+  transfersTo     Transfer[]       @relation("TransferToSchool")
+  invoices        Invoice[]
+  excelImports    ExcelImport[]
+  auditLogs       AuditLog[]
+
+  @@index([name])
+  @@map("schools")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  phone        String?
+  passwordHash String
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  schoolRoles         UserSchoolRole[]
+  createdStockMoves   StockMovement[]  @relation("StockMovementCreatedBy")
+  requestedTransfers  Transfer[]       @relation("TransferRequestedBy")
+  approvedTransfers   Transfer[]       @relation("TransferApprovedBy")
+  dispatchedTransfers Transfer[]       @relation("TransferDispatchedBy")
+  receivedTransfers   Transfer[]       @relation("TransferReceivedBy")
+  billedInvoices      Invoice[]        @relation("InvoiceBilledBy")
+  receivedPayments    Payment[]        @relation("PaymentReceivedBy")
+  excelImports        ExcelImport[]    @relation("ExcelImportUploadedBy")
+  auditLogs           AuditLog[]       @relation("AuditLogUser")
+
+  @@index([email])
+  @@map("users")
+}
+
+model UserSchoolRole {
+  id        String   @id @default(cuid())
+  userId    String
+  schoolId  String
+  role      RoleName
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, schoolId, role])
+  @@index([schoolId])
+  @@index([userId])
+  @@index([role])
+  @@map("user_school_roles")
+}
+
+model Student {
+  id          String    @id @default(cuid())
+  schoolId    String
+  admissionNo String?
+  name        String
+  className   String
+  sectionName String?
+  parentName  String?
+  parentPhone String?
+  address     String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  school   School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  invoices Invoice[]
+
+  @@unique([schoolId, admissionNo])
+  @@index([schoolId])
+  @@index([schoolId, className])
+  @@index([schoolId, className, sectionName])
+  @@index([schoolId, name])
+  @@map("students")
+}
+
+model Product {
+  id          String    @id @default(cuid())
+  name        String
+  category    String?
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  variants ProductVariant[]
+
+  @@index([name])
+  @@index([category])
+  @@map("products")
+}
+
+model ProductVariant {
+  id         String  @id @default(cuid())
+  productId  String
+  variantKey String  @unique
+  sku        String?
+  barcode    String?
+  unit       String  @default("PCS")
+
+  className   String?
+  sectionName String?
+  color       String?
+  size        String?
+
+  salePrice     Decimal  @default(0) @db.Decimal(10, 2)
+  costPrice     Decimal? @db.Decimal(10, 2)
+  mrp           Decimal? @db.Decimal(10, 2)
+  wholesaleRate Decimal? @db.Decimal(10, 2)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product         Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventoryStocks InventoryStock[]
+  stockMovements  StockMovement[]
+  transferItems   TransferItem[]
+  invoiceItems    InvoiceItem[]
+
+  @@index([productId])
+  @@index([sku])
+  @@index([barcode])
+  @@index([className])
+  @@index([sectionName])
+  @@index([color])
+  @@index([size])
+  @@map("product_variants")
+}
+
+model InventoryStock {
+  id               String   @id @default(cuid())
+  schoolId         String
+  productVariantId String
+  quantity         Int      @default(0)
+  reorderLevel     Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  school         School         @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+
+  @@unique([schoolId, productVariantId])
+  @@index([schoolId])
+  @@index([productVariantId])
+  @@map("inventory_stocks")
+}
+
+model StockMovement {
+  id               String            @id @default(cuid())
+  schoolId         String
+  productVariantId String
+  type             StockMovementType
+  quantity         Int
+  beforeQty        Int
+  afterQty         Int
+  referenceType    String?
+  referenceId      String?
+  note             String?
+  createdById      String?
+  createdAt        DateTime          @default(now())
+
+  school         School         @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+  createdBy      User?          @relation("StockMovementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([schoolId])
+  @@index([productVariantId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([referenceType, referenceId])
+  @@map("stock_movements")
+}
+
+model Transfer {
+  id           String         @id @default(cuid())
+  transferNo   String         @unique
+  fromSchoolId String
+  toSchoolId   String
+  status       TransferStatus @default(DRAFT)
+  note         String?
+
+  requestedById  String?
+  approvedById   String?
+  dispatchedById String?
+  receivedById   String?
+
+  requestedAt  DateTime  @default(now())
+  approvedAt   DateTime?
+  dispatchedAt DateTime?
+  receivedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fromSchool School @relation("TransferFromSchool", fields: [fromSchoolId], references: [id], onDelete: Restrict)
+  toSchool   School @relation("TransferToSchool", fields: [toSchoolId], references: [id], onDelete: Restrict)
+
+  requestedBy  User? @relation("TransferRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  approvedBy   User? @relation("TransferApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  dispatchedBy User? @relation("TransferDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
+  receivedBy   User? @relation("TransferReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+
+  items TransferItem[]
+
+  @@index([fromSchoolId])
+  @@index([toSchoolId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("transfers")
+}
+
+model TransferItem {
+  id               String   @id @default(cuid())
+  transferId       String
+  productVariantId String
+  requestedQty     Int
+  dispatchedQty    Int      @default(0)
+  receivedQty      Int      @default(0)
+  damagedQty       Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  transfer       Transfer       @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+
+  @@unique([transferId, productVariantId])
+  @@index([productVariantId])
+  @@map("transfer_items")
+}
+
+model Invoice {
+  id        String        @id @default(cuid())
+  invoiceNo String        @unique
+  schoolId  String
+  studentId String?
+  status    InvoiceStatus @default(PAID)
+
+  totalAmount    Decimal @default(0) @db.Decimal(10, 2)
+  discountAmount Decimal @default(0) @db.Decimal(10, 2)
+  payableAmount  Decimal @default(0) @db.Decimal(10, 2)
+  paidAmount     Decimal @default(0) @db.Decimal(10, 2)
+  balanceAmount  Decimal @default(0) @db.Decimal(10, 2)
+
+  note        String?
+  billedById  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  cancelledAt DateTime?
+
+  school   School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student  Student? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  billedBy User?    @relation("InvoiceBilledBy", fields: [billedById], references: [id], onDelete: SetNull)
+
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@index([schoolId])
+  @@index([studentId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id               String  @id @default(cuid())
+  invoiceId        String
+  productVariantId String
+  quantity         Int
+  unitPrice        Decimal @db.Decimal(10, 2)
+  discountAmount   Decimal @default(0) @db.Decimal(10, 2)
+  lineTotal        Decimal @db.Decimal(10, 2)
+
+  invoice        Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([productVariantId])
+  @@map("invoice_items")
+}
+
+model Payment {
+  id             String      @id @default(cuid())
+  invoiceId      String
+  mode           PaymentMode
+  amount         Decimal     @db.Decimal(10, 2)
+  transactionRef String?
+  receivedById   String?
+  paidAt         DateTime    @default(now())
+
+  invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  receivedBy User?   @relation("PaymentReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  @@index([mode])
+  @@index([paidAt])
+  @@map("payments")
+}
+
+model ExcelImport {
+  id           String       @id @default(cuid())
+  schoolId     String?
+  type         ImportType
+  fileName     String
+  totalRows    Int          @default(0)
+  successRows  Int          @default(0)
+  failedRows   Int          @default(0)
+  status       ImportStatus @default(PENDING)
+  errorSummary Json?
+  uploadedById String?
+  createdAt    DateTime     @default(now())
+
+  school     School? @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  uploadedBy User?   @relation("ExcelImportUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([schoolId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@map("excel_imports")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  schoolId  String?
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  oldData   Json?
+  newData   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  school School? @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  user   User?   @relation("AuditLogUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId])
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
