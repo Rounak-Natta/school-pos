@@ -1,7 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateProductAction } from "@/features/products/actions";
-import { PRODUCT_CATEGORIES } from "@/features/products/categories";
+import {
+  CLASS_OPTIONS,
+  COLOR_OPTIONS,
+  PRODUCT_CATEGORIES,
+  PRODUCT_NAME_OPTIONS,
+  SECTION_OPTIONS,
+  SIZE_OPTIONS,
+  SKU_OPTIONS,
+  UNIT_OPTIONS,
+} from "@/features/products/options";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -9,12 +18,33 @@ type EditProductPageProps = {
   params: Promise<{
     productId: string;
   }>;
+  searchParams: Promise<{
+    variantId?: string;
+  }>;
 };
 
-export default async function EditProductPage({ params }: EditProductPageProps) {
+function withCurrentOption(options: readonly string[], current?: string | null) {
+  if (!current) return options;
+
+  if (options.includes(current)) {
+    return options;
+  }
+
+  return [current, ...options];
+}
+
+function fallback(value?: string | null) {
+  return value || "Not Applicable";
+}
+
+export default async function EditProductPage({
+  params,
+  searchParams,
+}: EditProductPageProps) {
   await requireUser();
 
   const { productId } = await params;
+  const { variantId } = await searchParams;
 
   const product = await prisma.product.findUnique({
     where: {
@@ -29,10 +59,14 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
         include: {
           inventoryStocks: true,
         },
-        orderBy: {
-          createdAt: "asc",
-        },
-        take: 1,
+        orderBy: [
+          {
+            sku: "asc",
+          },
+          {
+            size: "asc",
+          },
+        ],
       },
     },
   });
@@ -41,13 +75,32 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
     notFound();
   }
 
-  const variant = product.variants[0];
-  const stock = variant?.inventoryStocks[0];
+  const selectedVariant =
+    product.variants.find((variant) => variant.id === variantId) ??
+    product.variants[0];
 
-  const categoryOptions =
-    product.category && !PRODUCT_CATEGORIES.includes(product.category)
-      ? [product.category, ...PRODUCT_CATEGORIES]
-      : PRODUCT_CATEGORIES;
+  const stock = selectedVariant?.inventoryStocks[0];
+
+  const productNameOptions = withCurrentOption(PRODUCT_NAME_OPTIONS, product.name);
+  const categoryOptions = withCurrentOption(
+    PRODUCT_CATEGORIES,
+    product.category
+  );
+  const skuOptions = withCurrentOption(SKU_OPTIONS, selectedVariant?.sku);
+  const unitOptions = withCurrentOption(UNIT_OPTIONS, selectedVariant?.unit);
+  const sizeOptions = withCurrentOption(SIZE_OPTIONS, selectedVariant?.size);
+  const colorOptions = withCurrentOption(
+    COLOR_OPTIONS,
+    fallback(selectedVariant?.color)
+  );
+  const classOptions = withCurrentOption(
+    CLASS_OPTIONS,
+    fallback(selectedVariant?.className)
+  );
+  const sectionOptions = withCurrentOption(
+    SECTION_OPTIONS,
+    fallback(selectedVariant?.sectionName)
+  );
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -57,19 +110,50 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
         </Link>
 
         <h1 className="mt-3 text-2xl font-semibold text-slate-950">
-          Edit Product
+          Edit Product / Variant
         </h1>
 
         <p className="mt-1 text-sm text-slate-500">
-          Editing product for {product.school.name}
+          Editing {product.name} for {product.school.name}
         </p>
       </div>
+
+      {product.variants.length > 1 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="mb-3 text-sm font-medium text-slate-700">
+            Select variant to edit
+          </p>
+
+          <div className="flex flex-wrap gap-2">
+            {product.variants.map((variant) => {
+              const active = variant.id === selectedVariant?.id;
+
+              return (
+                <Link
+                  key={variant.id}
+                  href={`/products/${product.id}/edit?variantId=${variant.id}`}
+                  className={
+                    active
+                      ? "rounded-full bg-slate-950 px-3 py-1 text-sm font-medium text-white"
+                      : "rounded-full border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700"
+                  }
+                >
+                  {variant.sku || "No SKU"}
+                  {variant.size ? ` / ${variant.size}` : ""}
+                  {variant.color ? ` / ${variant.color}` : ""}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <form
         action={updateProductAction.bind(null, product.id)}
         className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
       >
         <input type="hidden" name="schoolId" value={product.schoolId} />
+        <input type="hidden" name="variantId" value={selectedVariant?.id || ""} />
 
         <section className="space-y-4">
           <h2 className="text-base font-semibold text-slate-950">
@@ -94,12 +178,18 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
                 Product Name
               </label>
 
-              <input
+              <select
                 name="name"
                 required
                 defaultValue={product.name}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {productNameOptions.map((productName) => (
+                  <option key={productName} value={productName}>
+                    {productName}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -145,11 +235,18 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700">SKU</label>
 
-              <input
+              <select
                 name="sku"
-                defaultValue={variant?.sku || ""}
+                required
+                defaultValue={selectedVariant?.sku || "HS24"}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {skuOptions.map((sku) => (
+                  <option key={sku} value={sku}>
+                    {sku}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -159,7 +256,8 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
 
               <input
                 name="barcode"
-                defaultValue={variant?.barcode || ""}
+                defaultValue={selectedVariant?.barcode || ""}
+                placeholder="Optional"
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
               />
             </div>
@@ -167,22 +265,35 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700">Unit</label>
 
-              <input
+              <select
                 name="unit"
-                defaultValue={variant?.unit || "PCS"}
                 required
+                defaultValue={selectedVariant?.unit || "PCS"}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {unitOptions.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700">Size</label>
 
-              <input
+              <select
                 name="size"
-                defaultValue={variant?.size || ""}
+                required
+                defaultValue={selectedVariant?.size || "24"}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {sizeOptions.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -190,11 +301,17 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
                 Color
               </label>
 
-              <input
+              <select
                 name="color"
-                defaultValue={variant?.color || ""}
+                defaultValue={fallback(selectedVariant?.color)}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {colorOptions.map((color) => (
+                  <option key={color} value={color}>
+                    {color}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -202,11 +319,17 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
                 Class
               </label>
 
-              <input
+              <select
                 name="className"
-                defaultValue={variant?.className || ""}
+                defaultValue={fallback(selectedVariant?.className)}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {classOptions.map((className) => (
+                  <option key={className} value={className}>
+                    {className}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -214,11 +337,17 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
                 Section
               </label>
 
-              <input
+              <select
                 name="sectionName"
-                defaultValue={variant?.sectionName || ""}
+                defaultValue={fallback(selectedVariant?.sectionName)}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {sectionOptions.map((sectionName) => (
+                  <option key={sectionName} value={sectionName}>
+                    {sectionName}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </section>
@@ -239,7 +368,7 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
                 type="number"
                 step="0.01"
                 min="0"
-                defaultValue={variant?.salePrice.toString() || "0"}
+                defaultValue={selectedVariant?.salePrice.toString() || "0"}
                 required
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
               />
@@ -253,7 +382,7 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
                 type="number"
                 step="0.01"
                 min="0"
-                defaultValue={variant?.mrp?.toString() || ""}
+                defaultValue={selectedVariant?.mrp?.toString() || ""}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
               />
             </div>
@@ -268,7 +397,7 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
                 type="number"
                 step="0.01"
                 min="0"
-                defaultValue={variant?.costPrice?.toString() || ""}
+                defaultValue={selectedVariant?.costPrice?.toString() || ""}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
               />
             </div>
@@ -283,7 +412,7 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
                 type="number"
                 step="0.01"
                 min="0"
-                defaultValue={variant?.wholesaleRate?.toString() || ""}
+                defaultValue={selectedVariant?.wholesaleRate?.toString() || ""}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
               />
             </div>
@@ -332,7 +461,7 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
             type="submit"
             className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white"
           >
-            Update Product
+            Update Product / Variant
           </button>
         </div>
       </form>

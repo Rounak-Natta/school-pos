@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { deleteProductAction } from "@/features/products/actions";
-import { PRODUCT_CATEGORIES } from "@/features/products/categories";
+import { PRODUCT_CATEGORIES } from "@/features/products/options";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -102,6 +102,26 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
                   },
                 },
               },
+              {
+                variants: {
+                  some: {
+                    className: {
+                      contains: query,
+                      mode: "insensitive",
+                    },
+                  },
+                },
+              },
+              {
+                variants: {
+                  some: {
+                    sectionName: {
+                      contains: query,
+                      mode: "insensitive",
+                    },
+                  },
+                },
+              },
             ],
           }
         : {}),
@@ -115,9 +135,14 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         include: {
           inventoryStocks: true,
         },
-        orderBy: {
-          createdAt: "asc",
-        },
+        orderBy: [
+          {
+            sku: "asc",
+          },
+          {
+            size: "asc",
+          },
+        ],
       },
     },
     orderBy: [
@@ -132,32 +157,29 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
     ],
   });
 
-  const totalStock = products.reduce((total, product) => {
-    const productStock = product.variants.reduce((variantTotal, variant) => {
-      return (
-        variantTotal +
-        variant.inventoryStocks.reduce(
-          (stockTotal, stock) => stockTotal + stock.quantity,
-          0
-        )
-      );
-    }, 0);
+  const productVariantRows = products.flatMap((product) =>
+    product.variants.map((variant) => {
+      const stock = variant.inventoryStocks[0];
 
-    return total + productStock;
-  }, 0);
+      return {
+        product,
+        variant,
+        stock,
+        quantity: stock?.quantity ?? 0,
+        reorderLevel: stock?.reorderLevel ?? 0,
+      };
+    })
+  );
 
-  const lowStockCount = products.reduce((total, product) => {
-    const productLowStock = product.variants.reduce((variantTotal, variant) => {
-      const lowStocks = variant.inventoryStocks.filter((stock) => {
-        if (stock.reorderLevel <= 0) return false;
-        return stock.quantity <= stock.reorderLevel;
-      });
+  const totalStock = productVariantRows.reduce(
+    (total, row) => total + row.quantity,
+    0
+  );
 
-      return variantTotal + lowStocks.length;
-    }, 0);
-
-    return total + productLowStock;
-  }, 0);
+  const lowStockCount = productVariantRows.filter((row) => {
+    if (row.reorderLevel <= 0) return false;
+    return row.quantity <= row.reorderLevel;
+  }).length;
 
   return (
     <div className="space-y-6">
@@ -165,7 +187,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         <div>
           <h1 className="text-2xl font-semibold text-slate-950">Products</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Manage school-wise products, variants, pricing and opening stock.
+            Manage school-wise products, variants, pricing and stock.
           </p>
         </div>
 
@@ -174,7 +196,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
             href="/products/new"
             className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white"
           >
-            Add Product
+            Add Product / Variant
           </Link>
 
           <Link
@@ -195,6 +217,13 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Variants</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {productVariantRows.length}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Total Stock</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">
             {totalStock}
@@ -205,13 +234,6 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
           <p className="text-sm text-slate-500">Low Stock</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">
             {lowStockCount}
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Schools</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">
-            {schools.length}
           </p>
         </div>
       </div>
@@ -261,7 +283,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
       </form>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[1100px] text-left text-sm">
+        <table className="w-full min-w-[1250px] text-left text-sm">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
               <th className="px-4 py-3 font-medium">School</th>
@@ -269,28 +291,26 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
               <th className="px-4 py-3 font-medium">Category</th>
               <th className="px-4 py-3 font-medium">SKU</th>
               <th className="px-4 py-3 font-medium">Barcode</th>
+              <th className="px-4 py-3 font-medium">Class</th>
+              <th className="px-4 py-3 font-medium">Section</th>
               <th className="px-4 py-3 font-medium">Size</th>
               <th className="px-4 py-3 font-medium">Color</th>
               <th className="px-4 py-3 font-medium">MRP</th>
               <th className="px-4 py-3 font-medium">Price</th>
               <th className="px-4 py-3 font-medium">Stock</th>
+              <th className="px-4 py-3 font-medium">Reorder</th>
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr>
           </thead>
 
           <tbody>
-            {products.map((product) => {
-              const variant = product.variants[0];
-
-              const quantity =
-                variant?.inventoryStocks.reduce(
-                  (total, stock) => total + stock.quantity,
-                  0
-                ) ?? 0;
+            {productVariantRows.map(({ product, variant, quantity, reorderLevel }) => {
+              const isLowStock =
+                reorderLevel > 0 && quantity <= reorderLevel;
 
               return (
                 <tr
-                  key={product.id}
+                  key={variant.id}
                   className="border-t border-slate-200 text-slate-700"
                 >
                   <td className="px-4 py-3">{product.school.name}</td>
@@ -301,28 +321,41 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
 
                   <td className="px-4 py-3">{product.category || "-"}</td>
 
-                  <td className="px-4 py-3">{variant?.sku || "-"}</td>
+                  <td className="px-4 py-3">{variant.sku || "-"}</td>
 
-                  <td className="px-4 py-3">{variant?.barcode || "-"}</td>
+                  <td className="px-4 py-3">{variant.barcode || "-"}</td>
 
-                  <td className="px-4 py-3">{variant?.size || "-"}</td>
+                  <td className="px-4 py-3">{variant.className || "-"}</td>
 
-                  <td className="px-4 py-3">{variant?.color || "-"}</td>
+                  <td className="px-4 py-3">{variant.sectionName || "-"}</td>
+
+                  <td className="px-4 py-3">{variant.size || "-"}</td>
+
+                  <td className="px-4 py-3">{variant.color || "-"}</td>
 
                   <td className="px-4 py-3">
-                    ₹{variant?.mrp?.toString() || "0"}
+                    ₹{variant.mrp?.toString() || "0"}
                   </td>
 
                   <td className="px-4 py-3">
-                    ₹{variant?.salePrice.toString() || "0"}
+                    ₹{variant.salePrice.toString()}
                   </td>
 
-                  <td className="px-4 py-3 font-semibold">{quantity}</td>
+                  <td className="px-4 py-3 font-semibold">
+                    {quantity}
+                    {isLowStock ? (
+                      <span className="ml-2 rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+                        Low
+                      </span>
+                    ) : null}
+                  </td>
+
+                  <td className="px-4 py-3">{reorderLevel}</td>
 
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <Link
-                        href={`/products/${product.id}/edit`}
+                        href={`/products/${product.id}/edit?variantId=${variant.id}`}
                         className="text-slate-950 underline"
                       >
                         Edit
@@ -342,13 +375,13 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
               );
             })}
 
-            {products.length === 0 ? (
+            {productVariantRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={14}
                   className="px-4 py-10 text-center text-slate-500"
                 >
-                  No products found. Add your first product.
+                  No products found. Add your first product or variant.
                 </td>
               </tr>
             ) : null}

@@ -1,6 +1,15 @@
 import Link from "next/link";
 import { createProductAction } from "@/features/products/actions";
-import { PRODUCT_CATEGORIES } from "@/features/products/categories";
+import {
+  CLASS_OPTIONS,
+  COLOR_OPTIONS,
+  PRODUCT_CATEGORIES,
+  PRODUCT_NAME_OPTIONS,
+  SECTION_OPTIONS,
+  SIZE_OPTIONS,
+  SKU_OPTIONS,
+  UNIT_OPTIONS,
+} from "@/features/products/options";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -24,11 +33,11 @@ export default async function NewProductPage() {
         </Link>
 
         <h1 className="mt-3 text-2xl font-semibold text-slate-950">
-          Add Product
+          Add Product / Variant
         </h1>
 
         <p className="mt-1 text-sm text-slate-500">
-          Add a product, its first variant and opening stock.
+          Select a school product, add SKU, size, price and stock. If the product already exists, a new variant will be added.
         </p>
       </div>
 
@@ -67,12 +76,18 @@ export default async function NewProductPage() {
                 Product Name
               </label>
 
-              <input
+              <select
                 name="name"
                 required
-                placeholder="Half Shirt"
+                defaultValue="Half Shirt"
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {PRODUCT_NAME_OPTIONS.map((productName) => (
+                  <option key={productName} value={productName}>
+                    {productName}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -118,11 +133,18 @@ export default async function NewProductPage() {
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700">SKU</label>
 
-              <input
+              <select
                 name="sku"
-                placeholder="HS24"
+                required
+                defaultValue="HS24"
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {SKU_OPTIONS.map((sku) => (
+                  <option key={sku} value={sku}>
+                    {sku}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -140,22 +162,35 @@ export default async function NewProductPage() {
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700">Unit</label>
 
-              <input
+              <select
                 name="unit"
-                defaultValue="PCS"
                 required
+                defaultValue="PCS"
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {UNIT_OPTIONS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700">Size</label>
 
-              <input
+              <select
                 name="size"
-                placeholder="24"
+                required
+                defaultValue="24"
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -163,11 +198,17 @@ export default async function NewProductPage() {
                 Color
               </label>
 
-              <input
+              <select
                 name="color"
-                placeholder="Red"
+                defaultValue="Not Applicable"
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {COLOR_OPTIONS.map((color) => (
+                  <option key={color} value={color}>
+                    {color}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -175,11 +216,17 @@ export default async function NewProductPage() {
                 Class
               </label>
 
-              <input
+              <select
                 name="className"
-                placeholder="Nursery"
+                defaultValue="Not Applicable"
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {CLASS_OPTIONS.map((className) => (
+                  <option key={className} value={className}>
+                    {className}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -187,11 +234,17 @@ export default async function NewProductPage() {
                 Section
               </label>
 
-              <input
+              <select
                 name="sectionName"
-                placeholder="A"
+                defaultValue="Not Applicable"
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
-              />
+              >
+                {SECTION_OPTIONS.map((sectionName) => (
+                  <option key={sectionName} value={sectionName}>
+                    {sectionName}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </section>
@@ -260,7 +313,7 @@ export default async function NewProductPage() {
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700">
-                Opening Stock
+                Opening / Current Stock
               </label>
 
               <input
@@ -302,7 +355,7 @@ export default async function NewProductPage() {
             type="submit"
             className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white"
           >
-            Save Product
+            Save Product / Variant
           </button>
         </div>
       </form>

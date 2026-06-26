@@ -13,11 +13,19 @@ function clean(value: FormDataEntryValue | null) {
 
 function emptyToNull(value?: string) {
   const cleaned = String(value ?? "").trim();
-  return cleaned.length > 0 ? cleaned : null;
+
+  if (!cleaned || cleaned === "Not Applicable") {
+    return null;
+  }
+
+  return cleaned;
 }
 
 function toDecimalString(value?: number) {
-  if (value === undefined || Number.isNaN(value)) return null;
+  if (value === undefined || Number.isNaN(value)) {
+    return null;
+  }
+
   return value.toFixed(2);
 }
 
@@ -75,28 +83,58 @@ function readProductFormData(formData: FormData) {
   });
 }
 
+async function getCurrentDbUser() {
+  const sessionUser = await requireUser();
+
+  const dbUser = await prisma.user.findUnique({
+    where: {
+      id: sessionUser.id,
+    },
+    select: {
+      id: true,
+      email: true,
+    },
+  });
+
+  return {
+    sessionUser,
+    createdById: dbUser?.id ?? null,
+    createdByEmail: dbUser?.email ?? sessionUser.email,
+  };
+}
+
 export async function createProductAction(formData: FormData) {
-  const user = await requireUser();
+  const { createdById, createdByEmail } = await getCurrentDbUser();
   const input = readProductFormData(formData);
 
-  const duplicateProduct = await prisma.product.findFirst({
+  const school = await prisma.school.findUnique({
     where: {
-      schoolId: input.schoolId,
-      name: input.name,
-      deletedAt: null,
+      id: input.schoolId,
     },
     select: {
       id: true,
     },
   });
 
-  if (duplicateProduct) {
-    throw new Error("This product already exists for the selected school.");
+  if (!school) {
+    throw new Error("Selected school not found.");
   }
 
   await prisma.$transaction(async (tx) => {
-    const product = await tx.product.create({
-      data: {
+    const product = await tx.product.upsert({
+      where: {
+        schoolId_name: {
+          schoolId: input.schoolId,
+          name: input.name,
+        },
+      },
+      update: {
+        category: emptyToNull(input.category),
+        description: emptyToNull(input.description),
+        isActive: true,
+        deletedAt: null,
+      },
+      create: {
         schoolId: input.schoolId,
         name: input.name,
         category: emptyToNull(input.category),
@@ -105,11 +143,13 @@ export async function createProductAction(formData: FormData) {
       },
       select: {
         id: true,
+        schoolId: true,
+        name: true,
       },
     });
 
     const variantKey = createVariantKey({
-      schoolId: input.schoolId,
+      schoolId: product.schoolId,
       productId: product.id,
       sku: emptyToNull(input.sku),
       unit: input.unit,
@@ -119,8 +159,37 @@ export async function createProductAction(formData: FormData) {
       size: emptyToNull(input.size),
     });
 
-    const variant = await tx.productVariant.create({
-      data: {
+    const existingVariant = await tx.productVariant.findUnique({
+      where: {
+        variantKey,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    const variant = await tx.productVariant.upsert({
+      where: {
+        variantKey,
+      },
+      update: {
+        sku: emptyToNull(input.sku),
+        barcode: emptyToNull(input.barcode),
+        unit: input.unit,
+
+        className: emptyToNull(input.className),
+        sectionName: emptyToNull(input.sectionName),
+        color: emptyToNull(input.color),
+        size: emptyToNull(input.size),
+
+        salePrice: input.salePrice.toFixed(2),
+        costPrice: toDecimalString(input.costPrice),
+        mrp: toDecimalString(input.mrp),
+        wholesaleRate: toDecimalString(input.wholesaleRate),
+
+        isActive: true,
+      },
+      create: {
         productId: product.id,
         variantKey,
         sku: emptyToNull(input.sku),
@@ -144,28 +213,59 @@ export async function createProductAction(formData: FormData) {
       },
     });
 
-    await tx.inventoryStock.create({
-      data: {
-        schoolId: input.schoolId,
+    const existingStock = await tx.inventoryStock.findUnique({
+      where: {
+        schoolId_productVariantId: {
+          schoolId: product.schoolId,
+          productVariantId: variant.id,
+        },
+      },
+      select: {
+        quantity: true,
+      },
+    });
+
+    const beforeQty = existingStock?.quantity ?? 0;
+    const afterQty = input.quantity;
+
+    await tx.inventoryStock.upsert({
+      where: {
+        schoolId_productVariantId: {
+          schoolId: product.schoolId,
+          productVariantId: variant.id,
+        },
+      },
+      update: {
+        quantity: afterQty,
+        reorderLevel: input.reorderLevel,
+      },
+      create: {
+        schoolId: product.schoolId,
         productVariantId: variant.id,
-        quantity: input.quantity,
+        quantity: afterQty,
         reorderLevel: input.reorderLevel,
       },
     });
 
-    if (input.quantity > 0) {
+    if (beforeQty !== afterQty) {
       await tx.stockMovement.create({
         data: {
-          schoolId: input.schoolId,
+          schoolId: product.schoolId,
           productVariantId: variant.id,
-          type: StockMovementType.OPENING_STOCK,
-          quantity: input.quantity,
-          beforeQty: 0,
-          afterQty: input.quantity,
-          referenceType: "PRODUCT_CREATE",
+          type: existingVariant
+            ? afterQty > beforeQty
+              ? StockMovementType.ADJUSTMENT_IN
+              : StockMovementType.ADJUSTMENT_OUT
+            : StockMovementType.OPENING_STOCK,
+          quantity: afterQty - beforeQty,
+          beforeQty,
+          afterQty,
+          referenceType: existingVariant ? "PRODUCT_VARIANT_UPDATE" : "PRODUCT_CREATE",
           referenceId: product.id,
-          note: `Opening stock added while creating product by ${user.email}`,
-          createdById: user.id,
+          note: existingVariant
+            ? `Stock updated while adding existing variant by ${createdByEmail}`
+            : `Opening stock added while creating product by ${createdByEmail}`,
+          createdById,
         },
       });
     }
@@ -173,6 +273,8 @@ export async function createProductAction(formData: FormData) {
 
   revalidatePath("/products");
   revalidatePath("/inventory");
+  revalidatePath("/inventory/movements");
+
   redirect("/products");
 }
 
@@ -180,8 +282,9 @@ export async function updateProductAction(
   productId: string,
   formData: FormData
 ) {
-  const user = await requireUser();
+  const { createdById, createdByEmail } = await getCurrentDbUser();
   const input = readProductFormData(formData);
+  const variantId = clean(formData.get("variantId"));
 
   const product = await prisma.product.findUnique({
     where: {
@@ -189,10 +292,12 @@ export async function updateProductAction(
     },
     include: {
       variants: {
+        where: {
+          isActive: true,
+        },
         orderBy: {
           createdAt: "asc",
         },
-        take: 1,
       },
     },
   });
@@ -229,80 +334,96 @@ export async function updateProductAction(
         category: emptyToNull(input.category),
         description: emptyToNull(input.description),
         isActive: true,
+        deletedAt: null,
       },
     });
 
-    let variant = product.variants[0];
+    const targetVariant =
+      product.variants.find((variant) => variant.id === variantId) ??
+      product.variants[0];
 
-    if (!variant) {
-      const variantKey = createVariantKey({
-        schoolId: product.schoolId,
-        productId,
-        sku: emptyToNull(input.sku),
-        unit: input.unit,
-        className: emptyToNull(input.className),
-        sectionName: emptyToNull(input.sectionName),
-        color: emptyToNull(input.color),
-        size: emptyToNull(input.size),
-      });
+    const variantKey = createVariantKey({
+      schoolId: product.schoolId,
+      productId,
+      sku: emptyToNull(input.sku),
+      unit: input.unit,
+      className: emptyToNull(input.className),
+      sectionName: emptyToNull(input.sectionName),
+      color: emptyToNull(input.color),
+      size: emptyToNull(input.size),
+    });
 
-      variant = await tx.productVariant.create({
-        data: {
-          productId,
-          variantKey,
-          sku: emptyToNull(input.sku),
-          barcode: emptyToNull(input.barcode),
-          unit: input.unit,
+    const duplicateVariant = await tx.productVariant.findFirst({
+      where: {
+        variantKey,
+        ...(targetVariant
+          ? {
+              NOT: {
+                id: targetVariant.id,
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+      },
+    });
 
-          className: emptyToNull(input.className),
-          sectionName: emptyToNull(input.sectionName),
-          color: emptyToNull(input.color),
-          size: emptyToNull(input.size),
-
-          salePrice: input.salePrice.toFixed(2),
-          costPrice: toDecimalString(input.costPrice),
-          mrp: toDecimalString(input.mrp),
-          wholesaleRate: toDecimalString(input.wholesaleRate),
-
-          isActive: true,
-        },
-      });
-    } else {
-      const variantKey = createVariantKey({
-        schoolId: product.schoolId,
-        productId,
-        sku: emptyToNull(input.sku),
-        unit: input.unit,
-        className: emptyToNull(input.className),
-        sectionName: emptyToNull(input.sectionName),
-        color: emptyToNull(input.color),
-        size: emptyToNull(input.size),
-      });
-
-      variant = await tx.productVariant.update({
-        where: {
-          id: variant.id,
-        },
-        data: {
-          variantKey,
-          sku: emptyToNull(input.sku),
-          barcode: emptyToNull(input.barcode),
-          unit: input.unit,
-
-          className: emptyToNull(input.className),
-          sectionName: emptyToNull(input.sectionName),
-          color: emptyToNull(input.color),
-          size: emptyToNull(input.size),
-
-          salePrice: input.salePrice.toFixed(2),
-          costPrice: toDecimalString(input.costPrice),
-          mrp: toDecimalString(input.mrp),
-          wholesaleRate: toDecimalString(input.wholesaleRate),
-
-          isActive: true,
-        },
-      });
+    if (duplicateVariant) {
+      throw new Error("Another variant already exists with the same SKU, unit, class, section, color and size.");
     }
+
+    const variant = targetVariant
+      ? await tx.productVariant.update({
+          where: {
+            id: targetVariant.id,
+          },
+          data: {
+            variantKey,
+            sku: emptyToNull(input.sku),
+            barcode: emptyToNull(input.barcode),
+            unit: input.unit,
+
+            className: emptyToNull(input.className),
+            sectionName: emptyToNull(input.sectionName),
+            color: emptyToNull(input.color),
+            size: emptyToNull(input.size),
+
+            salePrice: input.salePrice.toFixed(2),
+            costPrice: toDecimalString(input.costPrice),
+            mrp: toDecimalString(input.mrp),
+            wholesaleRate: toDecimalString(input.wholesaleRate),
+
+            isActive: true,
+          },
+          select: {
+            id: true,
+          },
+        })
+      : await tx.productVariant.create({
+          data: {
+            productId,
+            variantKey,
+            sku: emptyToNull(input.sku),
+            barcode: emptyToNull(input.barcode),
+            unit: input.unit,
+
+            className: emptyToNull(input.className),
+            sectionName: emptyToNull(input.sectionName),
+            color: emptyToNull(input.color),
+            size: emptyToNull(input.size),
+
+            salePrice: input.salePrice.toFixed(2),
+            costPrice: toDecimalString(input.costPrice),
+            mrp: toDecimalString(input.mrp),
+            wholesaleRate: toDecimalString(input.wholesaleRate),
+
+            isActive: true,
+          },
+          select: {
+            id: true,
+          },
+        });
 
     const existingStock = await tx.inventoryStock.findUnique({
       where: {
@@ -352,8 +473,8 @@ export async function updateProductAction(
           afterQty,
           referenceType: "PRODUCT_EDIT",
           referenceId: product.id,
-          note: `Stock adjusted while editing product by ${user.email}`,
-          createdById: user.id,
+          note: `Stock adjusted while editing product by ${createdByEmail}`,
+          createdById,
         },
       });
     }
@@ -361,6 +482,8 @@ export async function updateProductAction(
 
   revalidatePath("/products");
   revalidatePath("/inventory");
+  revalidatePath("/inventory/movements");
+
   redirect("/products");
 }
 
