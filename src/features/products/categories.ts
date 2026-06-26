@@ -1,0 +1,16 @@
+export const PRODUCT_CATEGORIES = [
+  "Uniform",
+  "House Uniform",
+  "Sports Uniform",
+  "Winter Wear",
+  "Shoes",
+  "Socks",
+  "Tie & Belt",
+  "Books",
+  "Stationery",
+  "ID Card & Accessories",
+  "School Bag",
+  "Exam Material",
+  "Art & Craft",
+  "Miscellaneous",
+];
