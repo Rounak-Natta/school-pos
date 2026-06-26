@@ -9,29 +9,36 @@ const adapter = new PrismaPg({
 
 const prisma = new PrismaClient({ adapter });
 
-async function main() {
-  const schools = [
-    {
-      name: "HP GHOSH MEMORIAL SCHOOL",
-      code: "HPGMS",
-    },
-    {
-      name: "The Bandhan School - Aranghata",
-      code: "TBS-ARANGHATA",
-    },
-    {
-      name: "The Bandhan School - Taldi",
-      code: "TBS-TALDI",
-    },
-    {
-      name: "The Bandhan School - Chakdaha",
-      code: "TBS-CHAKDAHA",
-    },
-  ];
+const FIXED_SCHOOLS = [
+  {
+    name: "HP GHOSH MEMORIAL SCHOOL",
+    code: "HPGMS",
+  },
+  {
+    name: "The Bandhan School - Aranghata",
+    code: "TBS-ARANGHATA",
+  },
+  {
+    name: "The Bandhan School - Taldi",
+    code: "TBS-TALDI",
+  },
+  {
+    name: "The Bandhan School - Chakdaha",
+    code: "TBS-CHAKDAHA",
+  },
+];
 
-  for (const school of schools) {
+const ADMIN_EMAIL = "admin@schoolpos.com";
+const ADMIN_PASSWORD = "Admin@12345";
+
+async function main() {
+  console.log("Seeding fixed schools and super admin...");
+
+  for (const school of FIXED_SCHOOLS) {
     await prisma.school.upsert({
-      where: { code: school.code },
+      where: {
+        code: school.code,
+      },
       update: {
         name: school.name,
         isActive: true,
@@ -44,28 +51,37 @@ async function main() {
     });
   }
 
-  const passwordHash = await bcrypt.hash("Admin@12345", 12);
+  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
 
   const superAdmin = await prisma.user.upsert({
     where: {
-      email: "admin@schoolpos.com",
+      email: ADMIN_EMAIL,
     },
     update: {
       name: "Super Admin",
+      phone: "9999999999",
+      passwordHash,
       isActive: true,
+      deletedAt: null,
     },
     create: {
       name: "Super Admin",
-      email: "admin@schoolpos.com",
+      email: ADMIN_EMAIL,
       phone: "9999999999",
       passwordHash,
       isActive: true,
     },
   });
 
-  const allSchools = await prisma.school.findMany();
+  const schools = await prisma.school.findMany({
+    where: {
+      code: {
+        in: FIXED_SCHOOLS.map((school) => school.code),
+      },
+    },
+  });
 
-  for (const school of allSchools) {
+  for (const school of schools) {
     await prisma.userSchoolRole.upsert({
       where: {
         userId_schoolId_role: {
@@ -86,14 +102,27 @@ async function main() {
     });
   }
 
-  console.log("Seed completed successfully");
+  const [schoolCount, userCount, roleCount] = await Promise.all([
+    prisma.school.count(),
+    prisma.user.count(),
+    prisma.userSchoolRole.count(),
+  ]);
+
+  console.log("Seed completed successfully.");
+  console.log({
+    schools: schoolCount,
+    users: userCount,
+    userSchoolRoles: roleCount,
+  });
+
   console.log("Super Admin Login:");
-  console.log("Email: admin@schoolpos.com");
-  console.log("Password: Admin@12345");
+  console.log(`Email: ${ADMIN_EMAIL}`);
+  console.log(`Password: ${ADMIN_PASSWORD}`);
 }
 
 main()
   .catch((error) => {
+    console.error("Seed failed:");
     console.error(error);
     process.exit(1);
   })

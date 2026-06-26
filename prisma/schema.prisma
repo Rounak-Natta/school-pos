@@ -72,15 +72,16 @@ enum ImportStatus {
 }
 
 model School {
-  id        String   @id @default(cuid())
-  name      String
-  code      String   @unique
-  address   String?
-  phone     String?
-  email     String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  name          String
+  code          String   @unique
+  address       String?
+  phone         String?
+  email         String?
+  isActive      Boolean  @default(true)
+  isSystemFixed Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   products        Product[]
   userRoles       UserSchoolRole[]
