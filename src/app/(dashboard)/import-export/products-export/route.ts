@@ -1,10 +1,22 @@
-import { createProductsExportBuffer } from "@/features/import-export/excel-export";
+import {
+  createProductsExportBuffer,
+  type ProductExportRow,
+} from "@/features/import-export/excel-export";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
+const EXCEL_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+function toArrayBuffer(data: Uint8Array): ArrayBuffer {
+  const arrayBuffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(arrayBuffer).set(data);
+  return arrayBuffer;
+}
+
+export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -55,7 +67,7 @@ export async function GET(request: Request) {
     ],
   });
 
-  const rows = inventory.map((stock) => {
+  const rows: ProductExportRow[] = inventory.map((stock) => {
     const variant = stock.productVariant;
     const product = variant.product;
 
@@ -74,24 +86,22 @@ export async function GET(request: Request) {
       salePrice: Number(variant.salePrice),
       mrp: variant.mrp ? Number(variant.mrp) : "",
       costPrice: variant.costPrice ? Number(variant.costPrice) : "",
-      wholesaleRate: variant.wholesaleRate
-        ? Number(variant.wholesaleRate)
-        : "",
+      wholesaleRate: variant.wholesaleRate ? Number(variant.wholesaleRate) : "",
       quantity: stock.quantity,
       reorderLevel: stock.reorderLevel,
     };
   });
 
   const buffer = await createProductsExportBuffer(rows);
+  const body = toArrayBuffer(buffer);
 
   const fileName = schoolId
     ? "products-export-school-wise.xlsx"
     : "products-export-all-schools.xlsx";
 
-  return new Response(buffer, {
+  return new Response(body, {
     headers: {
-      "Content-Type":
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Type": EXCEL_CONTENT_TYPE,
       "Content-Disposition": `attachment; filename="${fileName}"`,
     },
   });
