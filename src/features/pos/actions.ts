@@ -728,5 +728,5 @@ export async function createPosInvoiceAction(formData: FormData): Promise<void> 
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${invoiceId}`);
 
-  redirect("/invoices");
+redirect(`/invoices/${invoiceId}`);
 }
