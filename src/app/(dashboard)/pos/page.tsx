@@ -9,6 +9,10 @@ import {
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+// ==============================
+// Helpers (pure functions)
+// ==============================
+
 type StockRow = Prisma.InventoryStockGetPayload<{
   include: {
     school: true;
@@ -20,13 +24,12 @@ type StockRow = Prisma.InventoryStockGetPayload<{
   };
 }>;
 
-function cleanText(value: string | null | undefined) {
+function cleanText(value: string | null | undefined): string {
   return String(value ?? "").trim();
 }
 
-function buildVariantName(stock: StockRow) {
+function buildVariantName(stock: StockRow): string {
   const variant = stock.productVariant;
-
   return [
     variant.className ? `Class ${variant.className}` : "",
     variant.sectionName ? `Sec ${variant.sectionName}` : "",
@@ -38,17 +41,15 @@ function buildVariantName(stock: StockRow) {
     .join(" · ");
 }
 
-function buildDisplayName(stock: StockRow) {
+function buildDisplayName(stock: StockRow): string {
   const productName = cleanText(stock.productVariant.product.name);
   const variantName = buildVariantName(stock);
-
   return variantName ? `${productName} — ${variantName}` : productName;
 }
 
-function buildSearchText(stock: StockRow) {
+function buildSearchText(stock: StockRow): string {
   const variant = stock.productVariant;
   const product = variant.product;
-
   return [
     product.name,
     product.category,
@@ -67,25 +68,23 @@ function buildSearchText(stock: StockRow) {
     .toLowerCase();
 }
 
+// ==============================
+// Page Component
+// ==============================
+
 export default async function PosPage() {
   const sessionUser = await requireUser();
 
+  // 1. Fetch user's active school roles
   const dbUser = await prisma.user.findUnique({
-    where: {
-      id: sessionUser.id,
-    },
+    where: { id: sessionUser.id },
     select: {
       schoolRoles: {
         where: {
           isActive: true,
-          school: {
-            isActive: true,
-          },
+          school: { isActive: true },
         },
-        select: {
-          schoolId: true,
-          role: true,
-        },
+        select: { schoolId: true, role: true },
       },
     },
   });
@@ -106,95 +105,47 @@ export default async function PosPage() {
     new Set(activeRoles.map((role) => role.schoolId).filter(Boolean)),
   );
 
-  if (!isSuperAdmin && accessibleSchoolIds.length === 0) {
-    return (
-      <div className="mx-auto max-w-3xl rounded-2xl border bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold text-slate-900">POS Billing</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          You do not have access to any active school.
-        </p>
-      </div>
-    );
-  }
-
-  const schoolWhere: Prisma.SchoolWhereInput = {
-    isActive: true,
-  };
-
+  // 2. Build where clauses
+  const schoolWhere: Prisma.SchoolWhereInput = { isActive: true };
   if (!isSuperAdmin) {
-    schoolWhere.id = {
-      in: accessibleSchoolIds,
-    };
+    schoolWhere.id = { in: accessibleSchoolIds };
   }
 
   const stockWhere: Prisma.InventoryStockWhereInput = {
-    quantity: {
-      gt: 0,
-    },
-    school: {
-      isActive: true,
-    },
+    quantity: { gt: 0 },
+    school: { isActive: true },
     productVariant: {
       isActive: true,
-      product: {
-        isActive: true,
-        deletedAt: null,
-      },
+      product: { isActive: true, deletedAt: null },
     },
   };
-
   if (!isSuperAdmin) {
-    stockWhere.schoolId = {
-      in: accessibleSchoolIds,
-    };
+    stockWhere.schoolId = { in: accessibleSchoolIds };
   }
 
+  // 3. Fetch data in parallel
   const [schools, stocks] = await Promise.all([
     prisma.school.findMany({
       where: schoolWhere,
-      orderBy: {
-        name: "asc",
-      },
+      orderBy: { name: "asc" },
     }),
-
     prisma.inventoryStock.findMany({
       where: stockWhere,
       include: {
         school: true,
-        productVariant: {
-          include: {
-            product: true,
-          },
-        },
+        productVariant: { include: { product: true } },
       },
       orderBy: [
-        {
-          school: {
-            name: "asc",
-          },
-        },
-        {
-          productVariant: {
-            product: {
-              name: "asc",
-            },
-          },
-        },
-        {
-          productVariant: {
-            className: "asc",
-          },
-        },
-        {
-          productVariant: {
-            size: "asc",
-          },
-        },
+        { school: { name: "asc" } },
+        { productVariant: { product: { name: "asc" } } },
+        { productVariant: { className: "asc" } },
+        { productVariant: { size: "asc" } },
       ],
     }),
   ]);
 
-  const activeSchoolIds = new Set(schools.map((school) => school.id));
+  // 4. Build options
+  const activeSchoolIds = new Set(schools.map((s) => s.id));
 
   const schoolOptions: PosSchoolOption[] = schools.map((school) => ({
     id: school.id,
@@ -206,7 +157,6 @@ export default async function PosPage() {
     .map((stock) => {
       const variant = stock.productVariant;
       const product = variant.product;
-
       return {
         inventoryStockId: stock.id,
         productVariantId: variant.id,
@@ -233,6 +183,7 @@ export default async function PosPage() {
       };
     });
 
+  // 5. Fallback if no schools
   if (schoolOptions.length === 0) {
     return (
       <div className="mx-auto max-w-3xl rounded-2xl border bg-white p-6 shadow-sm">
@@ -244,13 +195,13 @@ export default async function PosPage() {
     );
   }
 
+  // 6. Render
   return (
     <div className="mx-auto max-w-7xl space-y-6">
+      {/* Header */}
       <div className="flex flex-col gap-4 rounded-2xl border bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">
-            POS Billing
-          </h1>
+          <h1 className="text-2xl font-semibold text-slate-900">POS Billing</h1>
           <p className="mt-1 text-sm text-slate-500">
             Search products, filter stock, add items to cart, collect payment,
             and generate invoice.
@@ -261,15 +212,15 @@ export default async function PosPage() {
             active school{schoolOptions.length === 1 ? "" : "s"}.
           </p>
         </div>
-
         <Link
           href="/invoices"
-          className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
         >
           View Invoices
         </Link>
       </div>
 
+      {/* Form */}
       <PosBillingForm
         schools={schoolOptions}
         products={productOptions}

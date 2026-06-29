@@ -1,9 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 
 import { createPosInvoiceAction } from "@/features/pos/actions";
+
+// ==============================
+// Constants & Types
+// ==============================
 
 const MAX_VISIBLE_PRODUCTS = 200;
 const MAX_CART_ITEMS = 50;
@@ -49,45 +53,48 @@ type PosBillingFormProps = {
   paymentModes: string[];
 };
 
-function normalize(value: string) {
+// ==============================
+// Pure Helpers
+// ==============================
+
+function normalize(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function compact(value: string) {
+function compact(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, "");
 }
 
-function money(value: number) {
-  const safeValue = Number.isFinite(value) ? value : 0;
-
+function money(value: number): string {
+  const safe = Number.isFinite(value) ? value : 0;
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-  }).format(safeValue);
+  }).format(safe);
 }
 
-function roundMoney(value: number) {
+function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function formatPaymentMode(mode: string) {
+function formatPaymentMode(mode: string): string {
   return mode
     .split("_")
     .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
     .join(" ");
 }
 
-function uniqueSorted(values: string[]) {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort(
+function uniqueSorted(values: string[]): string[] {
+  return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean))).sort(
     (a, b) => a.localeCompare(b),
   );
 }
 
-function productLabel(product: PosProductOption) {
+function productLabel(product: PosProductOption): string {
   return product.displayName || product.productName;
 }
 
-function productMeta(product: PosProductOption) {
+function productMeta(product: PosProductOption): string {
   return [
     product.category,
     product.sku ? `SKU: ${product.sku}` : "",
@@ -98,11 +105,8 @@ function productMeta(product: PosProductOption) {
     .join(" · ");
 }
 
-function getProductScore(product: PosProductOption, keyword: string) {
-  if (!keyword) {
-    return 0;
-  }
-
+function getProductScore(product: PosProductOption, keyword: string): number {
+  if (!keyword) return 0;
   const normalKeyword = normalize(keyword);
   const compactKeyword = compact(keyword);
   const name = normalize(product.productName);
@@ -112,7 +116,6 @@ function getProductScore(product: PosProductOption, keyword: string) {
   const searchText = normalize(product.searchText);
 
   let score = 0;
-
   if (sku && sku === compactKeyword) score += 1000;
   if (barcode && barcode === compactKeyword) score += 1000;
   if (sku && sku.includes(compactKeyword)) score += 500;
@@ -120,33 +123,36 @@ function getProductScore(product: PosProductOption, keyword: string) {
   if (name.startsWith(normalKeyword)) score += 300;
   if (label.startsWith(normalKeyword)) score += 250;
   if (searchText.includes(normalKeyword)) score += 100;
-
   return score;
 }
 
-function SubmitButton({
-  disabled,
-}: {
-  disabled: boolean;
-}) {
-  const { pending } = useFormStatus();
+// ==============================
+// Submit Button (with useFormStatus)
+// ==============================
 
+function SubmitButton({ disabled }: { disabled: boolean }) {
+  const { pending } = useFormStatus();
   return (
     <button
       type="submit"
       disabled={disabled || pending}
-      className="mt-5 w-full rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+      className="mt-5 w-full rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 transition-colors"
     >
       {pending ? "Creating Invoice..." : "Create Invoice"}
     </button>
   );
 }
 
+// ==============================
+// Main Component
+// ==============================
+
 export function PosBillingForm({
   schools,
   products,
   paymentModes,
 }: PosBillingFormProps) {
+  // ---------- State ----------
   const [schoolId, setSchoolId] = useState(schools[0]?.id ?? "");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -157,44 +163,49 @@ export function PosBillingForm({
   const [discountAmount, setDiscountAmount] = useState("0");
   const [paidAmount, setPaidAmount] = useState("");
 
-  const productByStockId = useMemo(() => {
-    return new Map(products.map((product) => [product.inventoryStockId, product]));
-  }, [products]);
+  // Defer search updates to keep UI responsive
+  const deferredSearch = useDeferredValue(search);
 
-  const schoolProducts = useMemo(() => {
-    return products.filter((product) => product.schoolId === schoolId);
-  }, [products, schoolId]);
+  // ---------- Memoized derived data ----------
+  const productByStockId = useMemo(
+    () => new Map(products.map((p) => [p.inventoryStockId, p])),
+    [products],
+  );
 
-  const filterOptions = useMemo(() => {
-    return {
-      categories: uniqueSorted(schoolProducts.map((product) => product.category)),
-      classes: uniqueSorted(schoolProducts.map((product) => product.className)),
-      sections: uniqueSorted(schoolProducts.map((product) => product.sectionName)),
-    };
-  }, [schoolProducts]);
+  const schoolProducts = useMemo(
+    () => products.filter((p) => p.schoolId === schoolId),
+    [products, schoolId],
+  );
+
+  const filterOptions = useMemo(
+    () => ({
+      categories: uniqueSorted(schoolProducts.map((p) => p.category)),
+      classes: uniqueSorted(schoolProducts.map((p) => p.className)),
+      sections: uniqueSorted(schoolProducts.map((p) => p.sectionName)),
+    }),
+    [schoolProducts],
+  );
 
   const filteredProducts = useMemo(() => {
-    const keyword = normalize(search);
+    const keyword = normalize(deferredSearch);
     const tokens = keyword.split(" ").filter(Boolean);
 
-    return schoolProducts
-      .filter((product) => {
-        if (categoryFilter && product.category !== categoryFilter) {
-          return false;
-        }
+    let result = schoolProducts;
 
-        if (classFilter && product.className !== classFilter) {
-          return false;
-        }
+    // Apply category/class/section filters
+    if (categoryFilter) {
+      result = result.filter((p) => p.category === categoryFilter);
+    }
+    if (classFilter) {
+      result = result.filter((p) => p.className === classFilter);
+    }
+    if (sectionFilter) {
+      result = result.filter((p) => p.sectionName === sectionFilter);
+    }
 
-        if (sectionFilter && product.sectionName !== sectionFilter) {
-          return false;
-        }
-
-        if (tokens.length === 0) {
-          return true;
-        }
-
+    // Apply search
+    if (tokens.length > 0) {
+      result = result.filter((product) => {
         const searchable = normalize(
           [
             product.searchText,
@@ -212,42 +223,42 @@ export function PosBillingForm({
             .filter(Boolean)
             .join(" "),
         );
-
         return tokens.every((token) => searchable.includes(token));
-      })
-      .sort((a, b) => {
-        const scoreDifference =
-          getProductScore(b, search) - getProductScore(a, search);
+      });
+    }
 
-        if (scoreDifference !== 0) {
-          return scoreDifference;
-        }
+    // Sort by relevance
+    result.sort((a, b) => {
+      const scoreA = getProductScore(a, deferredSearch);
+      const scoreB = getProductScore(b, deferredSearch);
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return productLabel(a).localeCompare(productLabel(b));
+    });
 
-        return productLabel(a).localeCompare(productLabel(b));
-      })
-      .slice(0, MAX_VISIBLE_PRODUCTS);
+    return result.slice(0, MAX_VISIBLE_PRODUCTS);
   }, [
     schoolProducts,
-    search,
+    deferredSearch,
     categoryFilter,
     classFilter,
     sectionFilter,
   ]);
 
-  const cartProductIds = useMemo(() => {
-    return new Set(cart.map((item) => item.inventoryStockId));
-  }, [cart]);
+  const cartProductIds = useMemo(
+    () => new Set(cart.map((item) => item.inventoryStockId)),
+    [cart],
+  );
 
-  const subtotal = roundMoney(
-    cart.reduce((total, item) => {
-      const product = productByStockId.get(item.inventoryStockId);
-
-      if (!product) {
-        return total;
-      }
-
-      return total + product.salePrice * item.quantity;
-    }, 0),
+  // ---------- Cart calculations ----------
+  const subtotal = useMemo(
+    () =>
+      roundMoney(
+        cart.reduce((total, item) => {
+          const product = productByStockId.get(item.inventoryStockId);
+          return total + (product ? product.salePrice * item.quantity : 0);
+        }, 0),
+      ),
+    [cart, productByStockId],
   );
 
   const discountNumber = Number(discountAmount || 0);
@@ -255,7 +266,6 @@ export function PosBillingForm({
     !Number.isFinite(discountNumber) ||
     discountNumber < 0 ||
     discountNumber > subtotal;
-
   const discount = discountInvalid ? 0 : roundMoney(discountNumber);
   const payable = Math.max(0, roundMoney(subtotal - discount));
 
@@ -263,132 +273,119 @@ export function PosBillingForm({
   const paidInvalid =
     paidAmount.trim() !== "" &&
     (!Number.isFinite(paidNumber) || paidNumber < 0 || paidNumber > payable);
-
   const paid = paidInvalid ? 0 : roundMoney(paidNumber);
   const balance = Math.max(0, roundMoney(payable - paid));
 
   const selectedSchoolName =
-    schools.find((school) => school.id === schoolId)?.name ?? "Selected School";
-
-  function handleSchoolChange(value: string) {
-    setSchoolId(value);
-    setSearch("");
-    setCategoryFilter("");
-    setClassFilter("");
-    setSectionFilter("");
-    setCart([]);
-    setDiscountAmount("0");
-    setPaidAmount("");
-  }
-
-  function clearFilters() {
-    setSearch("");
-    setCategoryFilter("");
-    setClassFilter("");
-    setSectionFilter("");
-  }
-
-  function addItem(inventoryStockId: string, quantity = 1) {
-    const product = productByStockId.get(inventoryStockId);
-
-    if (!product) {
-      alert("Product not found. Please refresh and try again.");
-      return;
-    }
-
-    const safeQuantity = Math.trunc(quantity);
-
-    if (!Number.isInteger(safeQuantity) || safeQuantity <= 0) {
-      alert("Quantity must be greater than 0.");
-      return;
-    }
-
-    setCart((currentCart) => {
-      const existingItem = currentCart.find(
-        (item) => item.inventoryStockId === inventoryStockId,
-      );
-
-      if (!existingItem && currentCart.length >= MAX_CART_ITEMS) {
-        alert(`You can add up to ${MAX_CART_ITEMS} different products in one invoice.`);
-        return currentCart;
-      }
-
-      const existingQuantity = existingItem?.quantity ?? 0;
-      const nextQuantity = existingQuantity + safeQuantity;
-
-      if (nextQuantity > product.stockQty) {
-        alert(`Only ${product.stockQty} stock available for ${productLabel(product)}.`);
-        return currentCart;
-      }
-
-      if (existingItem) {
-        return currentCart.map((item) =>
-          item.inventoryStockId === inventoryStockId
-            ? {
-                ...item,
-                quantity: nextQuantity,
-              }
-            : item,
-        );
-      }
-
-      return [
-        ...currentCart,
-        {
-          inventoryStockId,
-          quantity: safeQuantity,
-        },
-      ];
-    });
-  }
-
-  function addFirstFilteredProduct() {
-    if (filteredProducts.length === 0) {
-      return;
-    }
-
-    addItem(filteredProducts[0].inventoryStockId);
-  }
-
-  function updateQuantity(inventoryStockId: string, quantity: number) {
-    const product = productByStockId.get(inventoryStockId);
-
-    if (!product) {
-      return;
-    }
-
-    if (!Number.isFinite(quantity)) {
-      return;
-    }
-
-    const safeQuantity = Math.min(
-      Math.max(Math.trunc(quantity), 1),
-      product.stockQty,
-    );
-
-    setCart((currentCart) =>
-      currentCart.map((item) =>
-        item.inventoryStockId === inventoryStockId
-          ? {
-              ...item,
-              quantity: safeQuantity,
-            }
-          : item,
-      ),
-    );
-  }
-
-  function removeItem(inventoryStockId: string) {
-    setCart((currentCart) =>
-      currentCart.filter((item) => item.inventoryStockId !== inventoryStockId),
-    );
-  }
+    schools.find((s) => s.id === schoolId)?.name ?? "Selected School";
 
   const submitDisabled =
     cart.length === 0 || !schoolId || discountInvalid || paidInvalid;
 
+  // ---------- Event handlers (useCallback) ----------
+  const handleSchoolChange = useCallback(
+    (value: string) => {
+      setSchoolId(value);
+      setSearch("");
+      setCategoryFilter("");
+      setClassFilter("");
+      setSectionFilter("");
+      setCart([]);
+      setDiscountAmount("0");
+      setPaidAmount("");
+    },
+    [],
+  );
+
+  const clearFilters = useCallback(() => {
+    setSearch("");
+    setCategoryFilter("");
+    setClassFilter("");
+    setSectionFilter("");
+  }, []);
+
+  const addItem = useCallback(
+    (inventoryStockId: string, quantity = 1) => {
+      const product = productByStockId.get(inventoryStockId);
+      if (!product) {
+        alert("Product not found. Please refresh and try again.");
+        return;
+      }
+      const safeQuantity = Math.trunc(quantity);
+      if (!Number.isInteger(safeQuantity) || safeQuantity <= 0) {
+        alert("Quantity must be greater than 0.");
+        return;
+      }
+
+      setCart((current) => {
+        const existing = current.find(
+          (item) => item.inventoryStockId === inventoryStockId,
+        );
+        if (!existing && current.length >= MAX_CART_ITEMS) {
+          alert(
+            `You can add up to ${MAX_CART_ITEMS} different products in one invoice.`,
+          );
+          return current;
+        }
+        const existingQty = existing?.quantity ?? 0;
+        const nextQty = existingQty + safeQuantity;
+        if (nextQty > product.stockQty) {
+          alert(
+            `Only ${product.stockQty} stock available for ${productLabel(product)}.`,
+          );
+          return current;
+        }
+        if (existing) {
+          return current.map((item) =>
+            item.inventoryStockId === inventoryStockId
+              ? { ...item, quantity: nextQty }
+              : item,
+          );
+        }
+        return [...current, { inventoryStockId, quantity: safeQuantity }];
+      });
+    },
+    [productByStockId],
+  );
+
+  const addFirstFilteredProduct = useCallback(() => {
+    if (filteredProducts.length) {
+      addItem(filteredProducts[0].inventoryStockId);
+    }
+  }, [filteredProducts, addItem]);
+
+  const updateQuantity = useCallback(
+    (inventoryStockId: string, quantity: number) => {
+      const product = productByStockId.get(inventoryStockId);
+      if (!product) return;
+      if (!Number.isFinite(quantity)) return;
+      const safeQty = Math.min(
+        Math.max(Math.trunc(quantity), 1),
+        product.stockQty,
+      );
+      setCart((current) =>
+        current.map((item) =>
+          item.inventoryStockId === inventoryStockId
+            ? { ...item, quantity: safeQty }
+            : item,
+        ),
+      );
+    },
+    [productByStockId],
+  );
+
+  const removeItem = useCallback((inventoryStockId: string) => {
+    setCart((current) =>
+      current.filter((item) => item.inventoryStockId !== inventoryStockId),
+    );
+  }, []);
+
+  const clearCart = useCallback(() => setCart([]), []);
+
+  // ---------- Render ----------
   return (
     <form action={createPosInvoiceAction} className="space-y-6">
+      {/* Hidden cart fields */}
       {cart.map((item, index) => (
         <div key={item.inventoryStockId}>
           <input
@@ -405,16 +402,18 @@ export function PosBillingForm({
       ))}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+        {/* LEFT COLUMN */}
         <div className="space-y-6">
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <div className="mb-5">
+          {/* Customer Details */}
+          <section className="rounded-2xl border bg-white p-6 shadow-sm">
+            <header className="mb-5">
               <h2 className="text-base font-semibold text-slate-900">
                 Customer Details
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 Select school and enter customer details for the invoice.
               </p>
-            </div>
+            </header>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -424,18 +423,17 @@ export function PosBillingForm({
                 >
                   School
                 </label>
-
                 <select
                   id="schoolId"
                   name="schoolId"
                   required
                   value={schoolId}
-                  onChange={(event) => handleSchoolChange(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  onChange={(e) => handleSchoolChange(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 >
-                  {schools.map((school) => (
-                    <option key={school.id} value={school.id}>
-                      {school.name}
+                  {schools.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
                     </option>
                   ))}
                 </select>
@@ -448,14 +446,13 @@ export function PosBillingForm({
                 >
                   Customer Name
                 </label>
-
                 <input
                   id="customerName"
                   name="customerName"
                   type="text"
                   required
                   placeholder="Enter customer name"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 />
               </div>
 
@@ -466,13 +463,12 @@ export function PosBillingForm({
                 >
                   Phone
                 </label>
-
                 <input
                   id="customerPhone"
                   name="customerPhone"
                   type="tel"
                   placeholder="Enter phone number"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 />
               </div>
 
@@ -484,16 +480,14 @@ export function PosBillingForm({
                   >
                     Class
                   </label>
-
                   <input
                     id="customerClassName"
                     name="customerClassName"
                     type="text"
                     placeholder="Class"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                   />
                 </div>
-
                 <div>
                   <label
                     htmlFor="customerSectionName"
@@ -501,21 +495,21 @@ export function PosBillingForm({
                   >
                     Section
                   </label>
-
                   <input
                     id="customerSectionName"
                     name="customerSectionName"
                     type="text"
                     placeholder="Section"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                   />
                 </div>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          {/* Products */}
+          <section className="rounded-2xl border bg-white p-6 shadow-sm">
+            <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="text-base font-semibold text-slate-900">
                   Products
@@ -525,15 +519,14 @@ export function PosBillingForm({
                   SKU, barcode, class, section, size, colour, and category.
                 </p>
               </div>
-
               <button
                 type="button"
                 onClick={clearFilters}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
               >
                 Clear Filters
               </button>
-            </div>
+            </header>
 
             <div className="grid gap-3 lg:grid-cols-[1fr_160px_140px_140px]">
               <div>
@@ -543,75 +536,68 @@ export function PosBillingForm({
                 >
                   Search Product
                 </label>
-
                 <input
                   id="productSearch"
                   type="text"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
                       addFirstFilteredProduct();
                     }
                   }}
                   placeholder="Type product / SKU / barcode and press Enter"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 />
               </div>
-
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
                   Category
                 </label>
-
                 <select
                   value={categoryFilter}
-                  onChange={(event) => setCategoryFilter(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 >
                   <option value="">All Categories</option>
-                  {filterOptions.categories.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
+                  {filterOptions.categories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
                     </option>
                   ))}
                 </select>
               </div>
-
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
                   Class
                 </label>
-
                 <select
                   value={classFilter}
-                  onChange={(event) => setClassFilter(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  onChange={(e) => setClassFilter(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 >
                   <option value="">All Classes</option>
-                  {filterOptions.classes.map((className) => (
-                    <option key={className} value={className}>
-                      {className}
+                  {filterOptions.classes.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
                     </option>
                   ))}
                 </select>
               </div>
-
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
                   Section
                 </label>
-
                 <select
                   value={sectionFilter}
-                  onChange={(event) => setSectionFilter(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  onChange={(e) => setSectionFilter(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 >
                   <option value="">All Sections</option>
-                  {filterOptions.sections.map((sectionName) => (
-                    <option key={sectionName} value={sectionName}>
-                      {sectionName}
+                  {filterOptions.sections.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
                     </option>
                   ))}
                 </select>
@@ -624,7 +610,6 @@ export function PosBillingForm({
                   {filteredProducts.length} product
                   {filteredProducts.length === 1 ? "" : "s"} found
                 </p>
-
                 <p className="text-xs text-slate-500">
                   Press Enter to add the first result
                 </p>
@@ -657,30 +642,26 @@ export function PosBillingForm({
                         (item) =>
                           item.inventoryStockId === product.inventoryStockId,
                       )?.quantity ?? 0;
-
                     const cannotAdd = cartQty >= product.stockQty;
 
                     return (
                       <div
                         key={product.inventoryStockId}
-                        className="grid gap-3 px-4 py-4 hover:bg-slate-50 md:grid-cols-[1fr_110px_90px]"
+                        className="grid gap-3 px-4 py-4 hover:bg-slate-50 transition-colors md:grid-cols-[1fr_110px_90px]"
                       >
                         <div>
                           <p className="font-medium text-slate-900">
                             {productLabel(product)}
                           </p>
-
                           <p className="mt-1 text-xs text-slate-500">
                             {productMeta(product) || "No product metadata"}
                           </p>
-
-                          {inCart ? (
+                          {inCart && (
                             <p className="mt-1 text-xs font-medium text-emerald-700">
                               In cart: {cartQty}
                             </p>
-                          ) : null}
+                          )}
                         </div>
-
                         <div className="text-sm md:text-right">
                           <p className="font-semibold text-slate-900">
                             {money(product.salePrice)}
@@ -689,13 +670,12 @@ export function PosBillingForm({
                             Stock: {product.stockQty}
                           </p>
                         </div>
-
                         <div className="flex items-center md:justify-end">
                           <button
                             type="button"
                             onClick={() => addItem(product.inventoryStockId)}
                             disabled={cannotAdd}
-                            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 transition-colors"
                           >
                             {cannotAdd ? "Added" : "Add"}
                           </button>
@@ -706,9 +686,10 @@ export function PosBillingForm({
                 </div>
               )}
             </div>
-          </div>
+          </section>
 
-          <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+          {/* Cart */}
+          <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
             <div className="flex items-center justify-between border-b px-6 py-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-900">
@@ -718,16 +699,15 @@ export function PosBillingForm({
                   {cart.length} item{cart.length === 1 ? "" : "s"} added.
                 </p>
               </div>
-
-              {cart.length > 0 ? (
+              {cart.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setCart([])}
-                  className="text-sm font-medium text-red-600 hover:text-red-700"
+                  onClick={clearCart}
+                  className="text-sm font-medium text-red-600 hover:text-red-700 transition-colors"
                 >
                   Clear Cart
                 </button>
-              ) : null}
+              )}
             </div>
 
             {cart.length === 0 ? (
@@ -751,19 +731,15 @@ export function PosBillingForm({
                       <th className="px-6 py-3 text-right">Action</th>
                     </tr>
                   </thead>
-
                   <tbody className="divide-y">
                     {cart.map((item) => {
-                      const product = productByStockId.get(item.inventoryStockId);
-
-                      if (!product) {
-                        return null;
-                      }
-
+                      const product = productByStockId.get(
+                        item.inventoryStockId,
+                      );
+                      if (!product) return null;
                       const lineTotal = roundMoney(
                         product.salePrice * item.quantity,
                       );
-
                       return (
                         <tr key={item.inventoryStockId}>
                           <td className="px-6 py-4">
@@ -776,11 +752,9 @@ export function PosBillingForm({
                               Stock: {product.stockQty}
                             </p>
                           </td>
-
                           <td className="px-6 py-4 text-right">
                             {money(product.salePrice)}
                           </td>
-
                           <td className="px-6 py-4">
                             <input
                               type="number"
@@ -788,25 +762,23 @@ export function PosBillingForm({
                               max={product.stockQty}
                               step="1"
                               value={item.quantity}
-                              onChange={(event) =>
+                              onChange={(e) =>
                                 updateQuantity(
                                   item.inventoryStockId,
-                                  Number(event.target.value),
+                                  Number(e.target.value),
                                 )
                               }
-                              className="mx-auto w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-center text-sm outline-none focus:border-slate-900"
+                              className="mx-auto w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-center text-sm outline-none focus:border-slate-900 transition-colors"
                             />
                           </td>
-
                           <td className="px-6 py-4 text-right font-medium">
                             {money(lineTotal)}
                           </td>
-
                           <td className="px-6 py-4 text-right">
                             <button
                               type="button"
                               onClick={() => removeItem(item.inventoryStockId)}
-                              className="text-sm font-medium text-red-600 hover:text-red-700"
+                              className="text-sm font-medium text-red-600 hover:text-red-700 transition-colors"
                             >
                               Remove
                             </button>
@@ -818,15 +790,15 @@ export function PosBillingForm({
                 </table>
               </div>
             )}
-          </div>
+          </section>
         </div>
 
+        {/* RIGHT COLUMN – Payment & Summary */}
         <div className="space-y-6">
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <section className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="mb-4 text-base font-semibold text-slate-900">
               Payment
             </h2>
-
             <div className="space-y-4">
               <div>
                 <label
@@ -835,12 +807,11 @@ export function PosBillingForm({
                 >
                   Payment Mode
                 </label>
-
                 <select
                   id="paymentMode"
                   name="paymentMode"
                   required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 >
                   {paymentModes.map((mode) => (
                     <option key={mode} value={mode}>
@@ -857,7 +828,6 @@ export function PosBillingForm({
                 >
                   Discount
                 </label>
-
                 <input
                   id="discountAmount"
                   name="discountAmount"
@@ -866,15 +836,14 @@ export function PosBillingForm({
                   max={subtotal}
                   step="0.01"
                   value={discountAmount}
-                  onChange={(event) => setDiscountAmount(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  onChange={(e) => setDiscountAmount(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 />
-
-                {discountInvalid ? (
+                {discountInvalid && (
                   <p className="mt-1 text-xs text-red-600">
                     Discount must be between 0 and {money(subtotal)}.
                   </p>
-                ) : null}
+                )}
               </div>
 
               <div>
@@ -884,7 +853,6 @@ export function PosBillingForm({
                 >
                   Paid Amount
                 </label>
-
                 <input
                   id="paidAmount"
                   name="paidAmount"
@@ -893,16 +861,15 @@ export function PosBillingForm({
                   max={payable}
                   step="0.01"
                   value={paidAmount}
-                  onChange={(event) => setPaidAmount(event.target.value)}
+                  onChange={(e) => setPaidAmount(e.target.value)}
                   placeholder="Leave blank for full payable amount"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 />
-
-                {paidInvalid ? (
+                {paidInvalid && (
                   <p className="mt-1 text-xs text-red-600">
                     Paid amount must be between 0 and {money(payable)}.
                   </p>
-                ) : null}
+                )}
               </div>
 
               <div>
@@ -912,23 +879,21 @@ export function PosBillingForm({
                 >
                   Transaction Ref
                 </label>
-
                 <input
                   id="transactionRef"
                   name="transactionRef"
                   type="text"
                   placeholder="UPI/Card/Bank reference"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
                 />
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <section className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="mb-4 text-base font-semibold text-slate-900">
               Summary
             </h2>
-
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500">Subtotal</span>
@@ -936,24 +901,20 @@ export function PosBillingForm({
                   {money(subtotal)}
                 </span>
               </div>
-
               <div className="flex justify-between">
                 <span className="text-slate-500">Discount</span>
                 <span className="font-medium text-slate-900">
                   {money(discount)}
                 </span>
               </div>
-
               <div className="flex justify-between border-t pt-3 text-base font-semibold">
                 <span>Payable</span>
                 <span>{money(payable)}</span>
               </div>
-
               <div className="flex justify-between">
                 <span className="text-slate-500">Paid</span>
                 <span className="font-medium text-slate-900">{money(paid)}</span>
               </div>
-
               <div className="flex justify-between">
                 <span className="text-slate-500">Balance</span>
                 <span className="font-medium text-slate-900">
@@ -961,26 +922,24 @@ export function PosBillingForm({
                 </span>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <section className="rounded-2xl border bg-white p-6 shadow-sm">
             <label
               htmlFor="note"
               className="mb-1 block text-sm font-medium text-slate-700"
             >
               Note
             </label>
-
             <textarea
               id="note"
               name="note"
               rows={3}
               placeholder="Optional note"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
             />
-
             <SubmitButton disabled={submitDisabled} />
-          </div>
+          </section>
         </div>
       </div>
     </form>
