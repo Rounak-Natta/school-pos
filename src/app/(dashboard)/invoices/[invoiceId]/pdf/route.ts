@@ -20,9 +20,11 @@ type RouteProps = {
 
 function safeFileName(value: string) {
   const cleaned = value
+    .normalize("NFKD")
     .replace(/[^\w.-]+/g, "_")
+    .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "")
-    .slice(0, 80);
+    .slice(0, 90);
 
   return cleaned || "invoice";
 }
@@ -34,14 +36,20 @@ export async function GET(_request: Request, { params }: RouteProps) {
   if (!access.isSuperAdmin && access.schoolIds.length === 0) {
     return new Response("You do not have access to invoices.", {
       status: 403,
+      headers: {
+        "Cache-Control": "no-store",
+      },
     });
   }
 
   const { invoiceId } = await Promise.resolve(params);
 
   if (!invoiceId || typeof invoiceId !== "string") {
-    return new Response("Invalid invoice id", {
+    return new Response("Invalid invoice id.", {
       status: 400,
+      headers: {
+        "Cache-Control": "no-store",
+      },
     });
   }
 
@@ -60,11 +68,13 @@ export async function GET(_request: Request, { params }: RouteProps) {
       school: true,
       student: true,
       billedBy: true,
+
       payments: {
         orderBy: {
           paidAt: "asc",
         },
       },
+
       items: {
         include: {
           productVariant: {
@@ -81,8 +91,11 @@ export async function GET(_request: Request, { params }: RouteProps) {
   });
 
   if (!invoice) {
-    return new Response("Invoice not found", {
+    return new Response("Invoice not found.", {
       status: 404,
+      headers: {
+        "Cache-Control": "no-store",
+      },
     });
   }
 
@@ -95,21 +108,27 @@ export async function GET(_request: Request, { params }: RouteProps) {
     const fileName = `${safeFileName(invoice.invoiceNo)}.pdf`;
 
     return new Response(new Uint8Array(buffer), {
+      status: 200,
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(
           fileName,
         )}`,
         "Content-Length": String(buffer.byteLength),
-        "Cache-Control": "private, no-store, max-age=0",
+        "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
         "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
     console.error("Invoice PDF generation failed:", error);
 
-    return new Response("Unable to generate invoice PDF", {
+    return new Response("Unable to generate invoice PDF.", {
       status: 500,
+      headers: {
+        "Cache-Control": "no-store",
+      },
     });
   }
 }

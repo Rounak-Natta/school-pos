@@ -1,29 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import type { Prisma } from "@/generated/prisma/client";
-
+import { InvoiceStatus, type Prisma } from "@/generated/prisma/client";
+import { getInvoiceAccessScope } from "@/features/pos/invoice-access";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-type InvoiceWithDetails = Prisma.InvoiceGetPayload<{
-  include: {
-    school: true;
-    payments: true;
-    items: {
-      include: {
-        productVariant: {
-          include: {
-            product: true;
-          };
-        };
-      };
-    };
-  };
-}>;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-type InvoiceItem = InvoiceWithDetails["items"][number];
-type InvoicePayment = InvoiceWithDetails["payments"][number];
+const TIME_ZONE = "Asia/Kolkata";
 
 type InvoicePageProps = {
   params:
@@ -35,139 +21,223 @@ type InvoicePageProps = {
       }>;
 };
 
-function toNumber(value: unknown) {
-  if (value === null || typeof value === "undefined") {
-    return 0;
-  }
+type DecimalLike =
+  | {
+      toString(): string;
+    }
+  | number
+  | string
+  | null
+  | undefined;
 
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : 0;
-  }
-
-  if (typeof value === "bigint") {
-    return Number(value);
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  if (typeof value === "object") {
-    const decimalValue = value as {
-      toNumber?: () => number;
-      toString?: () => string;
+type InvoiceItem = Prisma.InvoiceItemGetPayload<{
+  select: {
+    id: true;
+    quantity: true;
+    unitPrice: true;
+    discountAmount: true;
+    lineTotal: true;
+    productVariant: {
+      select: {
+        sku: true;
+        barcode: true;
+        unit: true;
+        className: true;
+        sectionName: true;
+        size: true;
+        color: true;
+        product: {
+          select: {
+            name: true;
+            category: true;
+          };
+        };
+      };
     };
+  };
+}>;
 
-    if (typeof decimalValue.toNumber === "function") {
-      return decimalValue.toNumber();
-    }
+function money(value: DecimalLike) {
+  const numericValue = Number(value?.toString() ?? 0);
 
-    if (typeof decimalValue.toString === "function") {
-      const parsed = Number(decimalValue.toString());
-      return Number.isFinite(parsed) ? parsed : 0;
-    }
-  }
-
-  return 0;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(numericValue) ? numericValue : 0);
 }
 
-function money(value: unknown) {
-  return `₹${toNumber(value).toFixed(2)}`;
-}
-
-function formatDate(value: Date) {
+function formatDateTime(date: Date) {
   return new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: TIME_ZONE,
+  }).format(date);
 }
 
-function formatPaymentMode(mode: string) {
-  return mode.split("_").join(" ");
+function formatEnum(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
 }
 
-function getPaymentModes(payments: InvoicePayment[]) {
-  if (payments.length === 0) {
-    return "-";
+function getStatusClass(status: InvoiceStatus) {
+  switch (status) {
+    case InvoiceStatus.PAID:
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case InvoiceStatus.PARTIALLY_PAID:
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case InvoiceStatus.CANCELLED:
+      return "border-red-200 bg-red-50 text-red-700";
+    case InvoiceStatus.RETURNED:
+      return "border-purple-200 bg-purple-50 text-purple-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
   }
-
-  return payments.map((payment) => formatPaymentMode(payment.mode)).join(", ");
 }
 
-function getCustomerName(invoice: InvoiceWithDetails) {
-  return invoice.customerName || "Walk-in Customer";
-}
-
-function getCustomerPhone(invoice: InvoiceWithDetails) {
-  return invoice.customerPhone || "-";
-}
-
-function getCustomerClass(invoice: InvoiceWithDetails) {
-  const classParts = [
-    invoice.customerClassName,
-    invoice.customerSectionName,
-  ].filter(Boolean);
-
-  if (classParts.length === 0) {
-    return "-";
-  }
-
-  return classParts.join(" - ");
-}
-
-function getItemName(item: InvoiceItem) {
-  const productName = item.productVariant.product.name;
-
-  const variantParts = [
-    item.productVariant.className,
-    item.productVariant.sectionName,
-    item.productVariant.size,
-    item.productVariant.color,
-  ].filter(Boolean);
-
-  if (variantParts.length === 0) {
-    return productName;
-  }
-
-  return `${productName} - ${variantParts.join(", ")}`;
+function getItemTitle(item: InvoiceItem) {
+  return item.productVariant.product.name;
 }
 
 function getItemMeta(item: InvoiceItem) {
-  const metaParts = [
-    item.productVariant.sku ? `SKU: ${item.productVariant.sku}` : null,
-    item.productVariant.barcode
-      ? `Barcode: ${item.productVariant.barcode}`
-      : null,
-    item.productVariant.unit ? `Unit: ${item.productVariant.unit}` : null,
-  ].filter(Boolean);
+  const variant = item.productVariant;
 
-  return metaParts.join(" · ");
+  return [
+    variant.product.category,
+    variant.sku ? `SKU ${variant.sku}` : "",
+    variant.barcode ? `Barcode ${variant.barcode}` : "",
+    variant.className ? `Class ${variant.className}` : "",
+    variant.sectionName ? `Sec ${variant.sectionName}` : "",
+    variant.size,
+    variant.color,
+    variant.unit ? `Unit ${variant.unit}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
-export default async function InvoiceDetailPage({ params }: InvoicePageProps) {
-  await requireUser();
+function getCustomerClass(invoice: {
+  customerClassName: string | null;
+  customerSectionName: string | null;
+}) {
+  return [
+    invoice.customerClassName ? `Class ${invoice.customerClassName}` : "",
+    invoice.customerSectionName ? `Sec ${invoice.customerSectionName}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export default async function InvoiceDetailPage({
+  params,
+}: InvoicePageProps) {
+  const user = await requireUser();
+  const access = await getInvoiceAccessScope(user);
+
+  if (!access.isSuperAdmin && access.schoolIds.length === 0) {
+    notFound();
+  }
 
   const { invoiceId } = await Promise.resolve(params);
 
-  const invoice = await prisma.invoice.findUnique({
+  if (!invoiceId || typeof invoiceId !== "string") {
+    notFound();
+  }
+
+  const invoice = await prisma.invoice.findFirst({
     where: {
       id: invoiceId,
+      ...(access.isSuperAdmin
+        ? {}
+        : {
+            schoolId: {
+              in: access.schoolIds,
+            },
+          }),
     },
-    include: {
-      school: true,
+    select: {
+      id: true,
+      invoiceNo: true,
+      status: true,
+
+      customerName: true,
+      customerPhone: true,
+      customerClassName: true,
+      customerSectionName: true,
+
+      totalAmount: true,
+      discountAmount: true,
+      payableAmount: true,
+      paidAmount: true,
+      balanceAmount: true,
+
+      note: true,
+      createdAt: true,
+
+      school: {
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          address: true,
+          phone: true,
+          email: true,
+        },
+      },
+
+      billedBy: {
+        select: {
+          name: true,
+          email: true,
+        },
+      },
+
       payments: {
+        select: {
+          id: true,
+          mode: true,
+          amount: true,
+          transactionRef: true,
+          paidAt: true,
+        },
         orderBy: {
           paidAt: "asc",
         },
       },
+
       items: {
-        include: {
+        select: {
+          id: true,
+          quantity: true,
+          unitPrice: true,
+          discountAmount: true,
+          lineTotal: true,
           productVariant: {
-            include: {
-              product: true,
+            select: {
+              sku: true,
+              barcode: true,
+              unit: true,
+              className: true,
+              sectionName: true,
+              size: true,
+              color: true,
+              product: {
+                select: {
+                  name: true,
+                  category: true,
+                },
+              },
             },
           },
+        },
+        orderBy: {
+          id: "asc",
         },
       },
     },
@@ -177,301 +247,391 @@ export default async function InvoiceDetailPage({ params }: InvoicePageProps) {
     notFound();
   }
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-col gap-4 rounded-2xl border bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-500">Invoice</p>
+  const stockMovements = await prisma.stockMovement.findMany({
+    where: {
+      referenceType: "INVOICE",
+      referenceId: invoice.id,
+    },
+    select: {
+      id: true,
+      type: true,
+      quantity: true,
+      beforeQty: true,
+      afterQty: true,
+      createdAt: true,
+      note: true,
+      productVariant: {
+        select: {
+          sku: true,
+          product: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+  });
 
-          <h1 className="mt-1 text-2xl font-semibold text-slate-900">
-            {invoice.invoiceNo}
-          </h1>
+  const totalQuantity = invoice.items.reduce(
+    (total, item) => total + item.quantity,
+    0,
+  );
+
+  const customerClass = getCustomerClass(invoice);
+  const balanceAmount = Number(invoice.balanceAmount.toString());
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
+              {invoice.invoiceNo}
+            </h1>
+
+            <span
+              className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusClass(
+                invoice.status,
+              )}`}
+            >
+              {formatEnum(invoice.status)}
+            </span>
+          </div>
 
           <p className="mt-1 text-sm text-slate-500">
-            Created on {formatDate(invoice.createdAt)}
+            {formatDateTime(invoice.createdAt)} · {invoice.school.name}
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/pos"
-            className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Back to POS
-          </Link>
-
+        <div className="flex flex-wrap gap-2">
           <Link
             href="/invoices"
-            className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             All Invoices
           </Link>
 
           <Link
+            href="/pos"
+            className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            New Bill
+          </Link>
+
+          <Link
             href={`/invoices/${invoice.id}/pdf`}
-            className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            className="inline-flex h-10 items-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
           >
             Download PDF
           </Link>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900">
-            Customer Details
-          </h2>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Customer Name
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Customer
               </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {getCustomerName(invoice)}
+              <p className="mt-2 truncate text-base font-semibold text-slate-950">
+                {invoice.customerName || "Walk-in Customer"}
               </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Phone
+              <p className="mt-1 truncate text-sm text-slate-500">
+                {invoice.customerPhone || "No phone"}
               </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {getCustomerPhone(invoice)}
+              <p className="mt-1 truncate text-sm text-slate-500">
+                {customerClass || "No class details"}
               </p>
             </div>
 
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Class / Section
-              </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {getCustomerClass(invoice)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 School
               </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
+              <p className="mt-2 line-clamp-2 text-base font-semibold text-slate-950">
                 {invoice.school.name}
               </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900">
-            Payment Details
-          </h2>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Status
-              </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {invoice.status}
+              <p className="mt-1 text-sm text-slate-500">
+                Code: {invoice.school.code}
               </p>
             </div>
 
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Payment Mode
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Billed By
               </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {getPaymentModes(invoice.payments)}
+              <p className="mt-2 truncate text-base font-semibold text-slate-950">
+                {invoice.billedBy?.name || "System User"}
               </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Total Amount
-              </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {money(invoice.totalAmount)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Discount
-              </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {money(invoice.discountAmount)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Paid
-              </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {money(invoice.paidAmount)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Balance
-              </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {money(invoice.balanceAmount)}
+              <p className="mt-1 truncate text-sm text-slate-500">
+                {invoice.billedBy?.email || "-"}
               </p>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-        <div className="border-b px-6 py-4">
-          <h2 className="text-base font-semibold text-slate-900">
-            Invoice Items
-          </h2>
-        </div>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-950">
+                  Invoice Items
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {invoice.items.length} line item
+                  {invoice.items.length === 1 ? "" : "s"} · {totalQuantity} total
+                  quantity
+                </p>
+              </div>
+            </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">Item</th>
-                <th className="px-6 py-3 text-center">Qty</th>
-                <th className="px-6 py-3 text-right">Rate</th>
-                <th className="px-6 py-3 text-right">Discount</th>
-                <th className="px-6 py-3 text-right">Total</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y">
-              {invoice.items.map((item: InvoiceItem) => {
-                const itemMeta = getItemMeta(item);
-
-                return (
-                  <tr key={item.id}>
-                    <td className="px-6 py-4">
-                      <p className="font-medium text-slate-900">
-                        {getItemName(item)}
-                      </p>
-
-                      {itemMeta ? (
-                        <p className="mt-1 text-xs text-slate-500">
-                          {itemMeta}
-                        </p>
-                      ) : null}
-                    </td>
-
-                    <td className="px-6 py-4 text-center">
-                      {item.quantity}
-                    </td>
-
-                    <td className="px-6 py-4 text-right">
-                      {money(item.unitPrice)}
-                    </td>
-
-                    <td className="px-6 py-4 text-right">
-                      {money(item.discountAmount)}
-                    </td>
-
-                    <td className="px-6 py-4 text-right font-medium">
-                      {money(item.lineTotal)}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[780px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-3 font-semibold">Item</th>
+                    <th className="w-20 px-4 py-3 text-center font-semibold">
+                      Qty
+                    </th>
+                    <th className="w-130 px-4 py-3 text-right font-semibold">
+                      Rate
+                    </th>
+                    <th className="w-130 px-4 py-3 text-right font-semibold">
+                      Discount
+                    </th>
+                    <th className="w-130 px-4 py-3 text-right font-semibold">
+                      Total
+                    </th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
 
-        <div className="border-t bg-slate-50 px-6 py-5">
-          <div className="ml-auto max-w-sm space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Total Amount</span>
-              <span className="font-medium text-slate-900">
-                {money(invoice.totalAmount)}
-              </span>
-            </div>
+                <tbody className="divide-y divide-slate-100">
+                  {invoice.items.map((item) => {
+                    const itemMeta = getItemMeta(item);
 
-            <div className="flex justify-between">
-              <span className="text-slate-500">Discount</span>
-              <span className="font-medium text-slate-900">
-                {money(invoice.discountAmount)}
-              </span>
-            </div>
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/70">
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-slate-950">
+                            {getItemTitle(item)}
+                          </p>
 
-            <div className="flex justify-between border-t pt-3 text-base font-semibold text-slate-900">
-              <span>Payable</span>
-              <span>{money(invoice.payableAmount)}</span>
-            </div>
+                          {itemMeta ? (
+                            <p className="mt-1 max-w-[520px] truncate text-xs text-slate-500">
+                              {itemMeta}
+                            </p>
+                          ) : null}
+                        </td>
 
-            <div className="flex justify-between">
-              <span className="text-slate-500">Paid</span>
-              <span className="font-medium text-slate-900">
-                {money(invoice.paidAmount)}
-              </span>
-            </div>
+                        <td className="px-4 py-3 text-center font-medium text-slate-900">
+                          {item.quantity}
+                        </td>
 
-            <div className="flex justify-between">
-              <span className="text-slate-500">Balance</span>
-              <span className="font-medium text-slate-900">
-                {money(invoice.balanceAmount)}
-              </span>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {money(item.unitPrice)}
+                        </td>
+
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {money(item.discountAmount)}
+                        </td>
+
+                        <td className="px-4 py-3 text-right font-semibold text-slate-950">
+                          {money(item.lineTotal)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
-      </div>
 
-      {invoice.note ? (
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900">Note</h2>
-          <p className="mt-3 text-sm text-slate-600">{invoice.note}</p>
-        </div>
-      ) : null}
+          {invoice.payments.length > 0 ? (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 px-4 py-3">
+                <h2 className="text-sm font-semibold text-slate-950">
+                  Payment History
+                </h2>
+              </div>
 
-      {invoice.payments.length > 0 ? (
-        <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-          <div className="border-b px-6 py-4">
-            <h2 className="text-base font-semibold text-slate-900">
-              Payment History
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[680px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3 font-semibold">Date</th>
+                      <th className="px-4 py-3 font-semibold">Mode</th>
+                      <th className="px-4 py-3 font-semibold">Reference</th>
+                      <th className="px-4 py-3 text-right font-semibold">
+                        Amount
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {invoice.payments.map((payment) => (
+                      <tr key={payment.id}>
+                        <td className="px-4 py-3">
+                          {formatDateTime(payment.paidAt)}
+                        </td>
+
+                        <td className="px-4 py-3 font-medium text-slate-900">
+                          {formatEnum(payment.mode)}
+                        </td>
+
+                        <td className="px-4 py-3 text-slate-500">
+                          {payment.transactionRef || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 text-right font-semibold text-slate-950">
+                          {money(payment.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          {stockMovements.length > 0 ? (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 px-4 py-3">
+                <h2 className="text-sm font-semibold text-slate-950">
+                  Stock Movements
+                </h2>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3 font-semibold">Product</th>
+                      <th className="px-4 py-3 font-semibold">Type</th>
+                      <th className="px-4 py-3 text-right font-semibold">Qty</th>
+                      <th className="px-4 py-3 text-right font-semibold">
+                        Before
+                      </th>
+                      <th className="px-4 py-3 text-right font-semibold">
+                        After
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {stockMovements.map((movement) => (
+                      <tr key={movement.id}>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-slate-900">
+                            {movement.productVariant.product.name}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {movement.productVariant.sku || "-"}
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-3 text-slate-700">
+                          {formatEnum(movement.type)}
+                        </td>
+
+                        <td className="px-4 py-3 text-right font-medium text-slate-900">
+                          {movement.quantity}
+                        </td>
+
+                        <td className="px-4 py-3 text-right text-slate-500">
+                          {movement.beforeQty}
+                        </td>
+
+                        <td className="px-4 py-3 text-right text-slate-500">
+                          {movement.afterQty}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          {invoice.note ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-950">Note</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                {invoice.note}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <aside className="space-y-4">
+          <div className="sticky top-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-950">
+              Bill Summary
             </h2>
+
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-500">Total</span>
+                <span className="font-medium text-slate-900">
+                  {money(invoice.totalAmount)}
+                </span>
+              </div>
+
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-500">Discount</span>
+                <span className="font-medium text-slate-900">
+                  {money(invoice.discountAmount)}
+                </span>
+              </div>
+
+              <div className="flex justify-between gap-4 border-t border-slate-200 pt-3">
+                <span className="font-semibold text-slate-950">Payable</span>
+                <span className="text-lg font-bold text-slate-950">
+                  {money(invoice.payableAmount)}
+                </span>
+              </div>
+
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-500">Paid</span>
+                <span className="font-medium text-slate-900">
+                  {money(invoice.paidAmount)}
+                </span>
+              </div>
+
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-500">Balance</span>
+                <span
+                  className={
+                    balanceAmount > 0
+                      ? "font-semibold text-amber-600"
+                      : "font-medium text-emerald-700"
+                  }
+                >
+                  {money(invoice.balanceAmount)}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-2">
+              <Link
+                href={`/invoices/${invoice.id}/pdf`}
+                className="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Download PDF
+              </Link>
+
+              <Link
+                href="/invoices"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Back to Invoices
+              </Link>
+            </div>
           </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-6 py-3">Date</th>
-                  <th className="px-6 py-3">Mode</th>
-                  <th className="px-6 py-3">Transaction Ref</th>
-                  <th className="px-6 py-3 text-right">Amount</th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y">
-                {invoice.payments.map((payment: InvoicePayment) => (
-                  <tr key={payment.id}>
-                    <td className="px-6 py-4">
-                      {formatDate(payment.paidAt)}
-                    </td>
-
-                    <td className="px-6 py-4">
-                      {formatPaymentMode(payment.mode)}
-                    </td>
-
-                    <td className="px-6 py-4">
-                      {payment.transactionRef || "-"}
-                    </td>
-
-                    <td className="px-6 py-4 text-right font-medium">
-                      {money(payment.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
+        </aside>
+      </div>
     </div>
   );
 }
