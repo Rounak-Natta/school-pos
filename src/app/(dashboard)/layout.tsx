@@ -8,6 +8,26 @@ const navItems = [
     href: "/dashboard",
   },
   {
+    label: "Analytics",
+    href: "/analytics",
+  },
+  {
+    label: "Billing",
+    href: "/pos",
+  },
+  {
+    label: "Invoices",
+    href: "/invoices",
+  },
+  {
+    label: "Inventory",
+    href: "/inventory",
+  },
+  {
+    label: "Products",
+    href: "/products",
+  },
+  {
     label: "Schools",
     href: "/schools",
   },
@@ -16,33 +36,15 @@ const navItems = [
     href: "/users",
   },
   {
-    label: "Students",
-    href: "/students",
-  },
-  {
-    label: "Products",
-    href: "/products",
-  },
-  {
-    label: "Inventory",
-    href: "/inventory",
-  },
-  {
     label: "Transfers",
     href: "/transfers",
   },
-  {
-    label: "POS Billing",
-    href: "/pos",
-  },
-  {
-    label: "Invoices",
-    href: "/invoices",
-  },
+  
   {
     label: "Reports",
     href: "/reports",
   },
+  
   {
     label: "Import / Export",
     href: "/import-export",
