@@ -207,25 +207,6 @@ function SidebarContent({
           ))}
         </div>
       </nav>
-
-      <div className="shrink-0 border-t border-slate-200 p-3">
-        <div className="rounded-2xl bg-slate-50 p-3">
-          <p className="text-xs font-semibold text-slate-900">
-            Need shortcut?
-          </p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">
-            Use Billing for quick POS invoice creation.
-          </p>
-
-          <Link
-            href="/pos"
-            onClick={onNavigate}
-            className="mt-3 inline-flex h-9 w-full items-center justify-center rounded-xl bg-slate-950 text-xs font-bold text-white transition hover:bg-slate-800"
-          >
-            New Bill
-          </Link>
-        </div>
-      </div>
     </div>
   );
 }
