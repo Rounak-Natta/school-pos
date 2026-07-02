@@ -2,7 +2,6 @@ import { renderToBuffer } from "@react-pdf/renderer";
 
 import { createInvoicePdfDocument } from "@/features/pos/invoice-pdf";
 import { getInvoiceAccessScope } from "@/features/pos/invoice-access";
-import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -30,8 +29,18 @@ function safeFileName(value: string) {
 }
 
 export async function GET(_request: Request, { params }: RouteProps) {
-  const user = await requireUser();
-  const access = await getInvoiceAccessScope(user);
+  let access: Awaited<ReturnType<typeof getInvoiceAccessScope>>;
+
+  try {
+    access = await getInvoiceAccessScope();
+  } catch {
+    return new Response("You do not have access to invoices.", {
+      status: 403,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 
   if (!access.isSuperAdmin && access.schoolIds.length === 0) {
     return new Response("You do not have access to invoices.", {

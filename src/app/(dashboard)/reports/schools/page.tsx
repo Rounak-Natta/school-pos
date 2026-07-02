@@ -41,8 +41,7 @@ function buildFilters(params: ReportSearchParams): SchoolReportFilters {
 }
 
 export default async function SchoolReportPage({ searchParams }: PageProps) {
-  const user = await requireUser();
-  const access = await getInvoiceAccessScope(user);
+  const access = await getInvoiceAccessScope();
   const params = await Promise.resolve(searchParams ?? {});
   const filters = buildFilters(params);
 

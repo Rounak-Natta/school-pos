@@ -40,8 +40,7 @@ function buildFilters(params: ReportSearchParams): StockReportFilters {
 }
 
 export default async function StockReportPage({ searchParams }: PageProps) {
-  const user = await requireUser();
-  const access = await getInvoiceAccessScope(user);
+  const access = await getInvoiceAccessScope();
   const params = await Promise.resolve(searchParams ?? {});
   const filters = buildFilters(params);
 

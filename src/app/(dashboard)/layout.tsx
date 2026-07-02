@@ -1,16 +1,21 @@
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { logoutAction } from "@/features/auth/actions";
-import { requireUser } from "@/lib/auth";
+import { getAccessScope, getPermissionKeys } from "@/lib/rbac";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const user = await requireUser();
+  const access = await getAccessScope();
+  const permissions = getPermissionKeys(access);
 
   return (
-    <DashboardShell userEmail={user.email} logoutAction={logoutAction}>
+    <DashboardShell
+      userEmail={access.email}
+      permissions={permissions}
+      logoutAction={logoutAction}
+    >
       {children}
     </DashboardShell>
   );

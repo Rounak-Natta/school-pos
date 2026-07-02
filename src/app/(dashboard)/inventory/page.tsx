@@ -1,6 +1,13 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  getAccessScope,
+  hasPermission,
+  Permission,
+  requirePermission,
+} from "@/lib/rbac";
 
 type InventoryPageProps = {
   searchParams: Promise<{
@@ -9,145 +16,189 @@ type InventoryPageProps = {
   }>;
 };
 
-export default async function InventoryPage({
-  searchParams,
-}: InventoryPageProps) {
-  await requireUser();
+function buildInventoryWhere(input: {
+  access: Awaited<ReturnType<typeof getAccessScope>>;
+  selectedSchoolId: string;
+  query: string;
+}): Prisma.InventoryStockWhereInput {
+  const { access, selectedSchoolId, query } = input;
 
-  const params = await searchParams;
-  const selectedSchoolId = params.schoolId || "";
-  const query = params.q?.trim() || "";
-
-  const schools = await prisma.school.findMany({
-    where: {
+  const where: Prisma.InventoryStockWhereInput = {
+    productVariant: {
       isActive: true,
-    },
-    orderBy: {
-      name: "asc",
-    },
-  });
-
-  const inventory = await prisma.inventoryStock.findMany({
-    where: {
-      ...(selectedSchoolId
-        ? {
-            schoolId: selectedSchoolId,
-          }
-        : {}),
-
-      productVariant: {
+      product: {
+        deletedAt: null,
         isActive: true,
-        product: {
-          deletedAt: null,
-          isActive: true,
-        },
       },
+    },
+  };
 
-      ...(query
-        ? {
-            OR: [
-              {
-                productVariant: {
-                  product: {
-                    name: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-              {
-                productVariant: {
-                  product: {
-                    category: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-              {
-                productVariant: {
-                  sku: {
-                    contains: query,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              {
-                productVariant: {
-                  barcode: {
-                    contains: query,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              {
-                productVariant: {
-                  size: {
-                    contains: query,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              {
-                productVariant: {
-                  color: {
-                    contains: query,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              {
-                productVariant: {
-                  className: {
-                    contains: query,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              {
-                productVariant: {
-                  sectionName: {
-                    contains: query,
-                    mode: "insensitive",
-                  },
-                },
-              },
-            ],
-          }
-        : {}),
-    },
-    include: {
-      school: true,
-      productVariant: {
-        include: {
-          product: true,
-        },
-      },
-    },
-    orderBy: [
+  if (access.isSuperAdmin) {
+    if (selectedSchoolId) {
+      where.schoolId = selectedSchoolId;
+    }
+  } else if (selectedSchoolId && access.schoolIds.includes(selectedSchoolId)) {
+    where.schoolId = selectedSchoolId;
+  } else {
+    where.schoolId = {
+      in: access.schoolIds,
+    };
+  }
+
+  if (query) {
+    where.OR = [
       {
-        school: {
-          name: "asc",
+        productVariant: {
+          product: {
+            name: {
+              contains: query,
+              mode: "insensitive",
+            },
+          },
         },
       },
       {
         productVariant: {
           product: {
-            name: "asc",
+            category: {
+              contains: query,
+              mode: "insensitive",
+            },
           },
         },
       },
       {
-        updatedAt: "desc",
+        productVariant: {
+          sku: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
       },
-    ],
+      {
+        productVariant: {
+          barcode: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        productVariant: {
+          size: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        productVariant: {
+          color: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        productVariant: {
+          className: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        productVariant: {
+          sectionName: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+    ];
+  }
+
+  return where;
+}
+
+export default async function InventoryPage({
+  searchParams,
+}: InventoryPageProps) {
+  const access = await getAccessScope();
+
+  requirePermission(access, Permission.VIEW_INVENTORY);
+
+  const canManageInventory = hasPermission(access, Permission.MANAGE_INVENTORY);
+  const canManageProducts = hasPermission(access, Permission.MANAGE_PRODUCTS);
+
+  const params = await searchParams;
+
+  const requestedSchoolId = params.schoolId || "";
+  const selectedSchoolId =
+    access.isSuperAdmin || access.schoolIds.includes(requestedSchoolId)
+      ? requestedSchoolId
+      : "";
+
+  const query = params.q?.trim() || "";
+
+  const schoolWhere: Prisma.SchoolWhereInput = {
+    isActive: true,
+    ...(access.isSuperAdmin
+      ? {}
+      : {
+          id: {
+            in: access.schoolIds,
+          },
+        }),
+  };
+
+  const inventoryWhere = buildInventoryWhere({
+    access,
+    selectedSchoolId,
+    query,
   });
+
+  const [schools, inventory] = await prisma.$transaction([
+    prisma.school.findMany({
+      where: schoolWhere,
+      orderBy: {
+        name: "asc",
+      },
+    }),
+
+    prisma.inventoryStock.findMany({
+      where: inventoryWhere,
+      include: {
+        school: true,
+        productVariant: {
+          include: {
+            product: true,
+          },
+        },
+      },
+      orderBy: [
+        {
+          school: {
+            name: "asc",
+          },
+        },
+        {
+          productVariant: {
+            product: {
+              name: "asc",
+            },
+          },
+        },
+        {
+          updatedAt: "desc",
+        },
+      ],
+    }),
+  ]);
 
   const totalQuantity = inventory.reduce(
     (total, item) => total + item.quantity,
-    0
+    0,
   );
 
   const lowStockCount = inventory.filter((item) => {
@@ -166,19 +217,23 @@ export default async function InventoryPage({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Link
-            href="/products/new"
-            className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white"
-          >
-            Add Product
-          </Link>
+          {canManageProducts ? (
+            <Link
+              href="/products/new"
+              className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white"
+            >
+              Add Product
+            </Link>
+          ) : null}
 
-          <Link
-            href="/inventory/adjustments"
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
-          >
-            Adjust Stock
-          </Link>
+          {canManageInventory ? (
+            <Link
+              href="/inventory/adjustments"
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+            >
+              Adjust Stock
+            </Link>
+          ) : null}
 
           <Link
             href="/inventory/movements"
@@ -310,12 +365,16 @@ export default async function InventoryPage({
                   </td>
 
                   <td className="px-4 py-3">
-                    <Link
-                      href={`/products/${product.id}/edit`}
-                      className="text-slate-950 underline"
-                    >
-                      Edit
-                    </Link>
+                    {canManageProducts ? (
+                      <Link
+                        href={`/products/${product.id}/edit?variantId=${variant.id}`}
+                        className="text-slate-950 underline"
+                      >
+                        Edit
+                      </Link>
+                    ) : (
+                      <span className="text-slate-400">View only</span>
+                    )}
                   </td>
                 </tr>
               );

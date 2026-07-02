@@ -2,10 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
 import { StockMovementType } from "@/generated/prisma/client";
-import { requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { productFormSchema } from "@/features/products/schemas";
+import { prisma } from "@/lib/prisma";
+import {
+  getAccessScope,
+  Permission,
+  requirePermission,
+  resolveAccessibleSchoolId,
+} from "@/lib/rbac";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -83,48 +89,21 @@ function readProductFormData(formData: FormData) {
   });
 }
 
-async function getCurrentDbUser() {
-  const sessionUser = await requireUser();
-
-  const dbUser = await prisma.user.findUnique({
-    where: {
-      id: sessionUser.id,
-    },
-    select: {
-      id: true,
-      email: true,
-    },
-  });
-
-  return {
-    sessionUser,
-    createdById: dbUser?.id ?? null,
-    createdByEmail: dbUser?.email ?? sessionUser.email,
-  };
-}
-
 export async function createProductAction(formData: FormData) {
-  const { createdById, createdByEmail } = await getCurrentDbUser();
+  const access = await getAccessScope();
   const input = readProductFormData(formData);
 
-  const school = await prisma.school.findUnique({
-    where: {
-      id: input.schoolId,
-    },
-    select: {
-      id: true,
-    },
+  const schoolId = await resolveAccessibleSchoolId({
+    postedSchoolId: input.schoolId,
+    access,
+    permission: Permission.MANAGE_PRODUCTS,
   });
-
-  if (!school) {
-    throw new Error("Selected school not found.");
-  }
 
   await prisma.$transaction(async (tx) => {
     const product = await tx.product.upsert({
       where: {
         schoolId_name: {
-          schoolId: input.schoolId,
+          schoolId,
           name: input.name,
         },
       },
@@ -135,7 +114,7 @@ export async function createProductAction(formData: FormData) {
         deletedAt: null,
       },
       create: {
-        schoolId: input.schoolId,
+        schoolId,
         name: input.name,
         category: emptyToNull(input.category),
         description: emptyToNull(input.description),
@@ -260,12 +239,14 @@ export async function createProductAction(formData: FormData) {
           quantity: afterQty - beforeQty,
           beforeQty,
           afterQty,
-          referenceType: existingVariant ? "PRODUCT_VARIANT_UPDATE" : "PRODUCT_CREATE",
+          referenceType: existingVariant
+            ? "PRODUCT_VARIANT_UPDATE"
+            : "PRODUCT_CREATE",
           referenceId: product.id,
           note: existingVariant
-            ? `Stock updated while adding existing variant by ${createdByEmail}`
-            : `Opening stock added while creating product by ${createdByEmail}`,
-          createdById,
+            ? `Stock updated while adding existing variant by ${access.email}`
+            : `Opening stock added while creating product by ${access.email}`,
+          createdById: access.userId,
         },
       });
     }
@@ -280,9 +261,9 @@ export async function createProductAction(formData: FormData) {
 
 export async function updateProductAction(
   productId: string,
-  formData: FormData
+  formData: FormData,
 ) {
-  const { createdById, createdByEmail } = await getCurrentDbUser();
+  const access = await getAccessScope();
   const input = readProductFormData(formData);
   const variantId = clean(formData.get("variantId"));
 
@@ -291,6 +272,12 @@ export async function updateProductAction(
       id: productId,
     },
     include: {
+      school: {
+        select: {
+          id: true,
+          isActive: true,
+        },
+      },
       variants: {
         where: {
           isActive: true,
@@ -302,8 +289,14 @@ export async function updateProductAction(
     },
   });
 
-  if (!product || product.deletedAt) {
+  if (!product || product.deletedAt || !product.school.isActive) {
     throw new Error("Product not found.");
+  }
+
+  requirePermission(access, Permission.MANAGE_PRODUCTS, product.schoolId);
+
+  if (input.schoolId && input.schoolId !== product.schoolId) {
+    throw new Error("Product school cannot be changed from this form.");
   }
 
   const duplicateProduct = await prisma.product.findFirst({
@@ -321,7 +314,9 @@ export async function updateProductAction(
   });
 
   if (duplicateProduct) {
-    throw new Error("Another product with this name already exists in this school.");
+    throw new Error(
+      "Another product with this name already exists in this school.",
+    );
   }
 
   await prisma.$transaction(async (tx) => {
@@ -370,7 +365,9 @@ export async function updateProductAction(
     });
 
     if (duplicateVariant) {
-      throw new Error("Another variant already exists with the same SKU, unit, class, section, color and size.");
+      throw new Error(
+        "Another variant already exists with the same SKU, unit, class, section, color and size.",
+      );
     }
 
     const variant = targetVariant
@@ -473,8 +470,8 @@ export async function updateProductAction(
           afterQty,
           referenceType: "PRODUCT_EDIT",
           referenceId: product.id,
-          note: `Stock adjusted while editing product by ${createdByEmail}`,
-          createdById,
+          note: `Stock adjusted while editing product by ${access.email}`,
+          createdById: access.userId,
         },
       });
     }
@@ -488,7 +485,29 @@ export async function updateProductAction(
 }
 
 export async function deleteProductAction(productId: string) {
-  await requireUser();
+  const access = await getAccessScope();
+
+  const product = await prisma.product.findUnique({
+    where: {
+      id: productId,
+    },
+    select: {
+      id: true,
+      schoolId: true,
+      deletedAt: true,
+      school: {
+        select: {
+          isActive: true,
+        },
+      },
+    },
+  });
+
+  if (!product || product.deletedAt || !product.school.isActive) {
+    throw new Error("Product not found.");
+  }
+
+  requirePermission(access, Permission.MANAGE_PRODUCTS, product.schoolId);
 
   await prisma.$transaction(async (tx) => {
     await tx.product.update({
@@ -512,4 +531,5 @@ export async function deleteProductAction(productId: string) {
 
   revalidatePath("/products");
   revalidatePath("/inventory");
+  revalidatePath("/inventory/movements");
 }

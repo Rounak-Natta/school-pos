@@ -7,12 +7,15 @@ import { redirect } from "next/navigation";
 import {
   InvoiceStatus,
   PaymentMode,
-  RoleName,
   StockMovementType,
   type Prisma,
 } from "@/generated/prisma/client";
-import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  getAccessScope,
+  Permission,
+  resolveAccessibleSchoolId,
+} from "@/lib/rbac";
 
 const MAX_ITEMS = 50;
 const MAX_QTY_PER_LINE = 9999;
@@ -31,13 +34,6 @@ type PosSearchResult = {
   unit: string;
   salePrice: number;
   stockQty: number;
-};
-
-type AccessScope = {
-  userId: string | null;
-  email: string;
-  isSuperAdmin: boolean;
-  schoolIds: string[];
 };
 
 type CollectedItem = {
@@ -191,103 +187,6 @@ function getProductLabel(stock: StockWithProduct): string {
     : product.name;
 }
 
-async function getAccessScope(): Promise<AccessScope> {
-  const sessionUser = await requireUser();
-
-  const dbUser = await prisma.user.findUnique({
-    where: {
-      id: sessionUser.id,
-    },
-    select: {
-      id: true,
-      email: true,
-      schoolRoles: {
-        where: {
-          isActive: true,
-          school: {
-            isActive: true,
-          },
-        },
-        select: {
-          schoolId: true,
-          role: true,
-        },
-      },
-    },
-  });
-
-  const dbRoles = dbUser?.schoolRoles ?? [];
-  const sessionRoles = sessionUser.roles ?? [];
-
-  const roles =
-    dbRoles.length > 0
-      ? dbRoles
-      : sessionRoles
-          .filter((role) => Boolean(role.schoolId))
-          .map((role) => ({
-            schoolId: role.schoolId,
-            role: role.role,
-          }));
-
-  const isSuperAdmin = roles.some(
-    (role) =>
-      role.role === RoleName.SUPER_ADMIN || String(role.role) === "SUPER_ADMIN",
-  );
-
-  const schoolIds = Array.from(
-    new Set(
-      roles
-        .map((role) => role.schoolId)
-        .filter((schoolId): schoolId is string => Boolean(schoolId)),
-    ),
-  );
-
-  return {
-    userId: dbUser?.id ?? sessionUser.id ?? null,
-    email: dbUser?.email ?? sessionUser.email ?? "unknown-user",
-    isSuperAdmin,
-    schoolIds,
-  };
-}
-
-async function resolveSchoolId(input: {
-  postedSchoolId: string;
-  access: AccessScope;
-}): Promise<string> {
-  const { postedSchoolId, access } = input;
-
-  if (!postedSchoolId) {
-    if (!access.isSuperAdmin && access.schoolIds.length === 1) {
-      return access.schoolIds[0];
-    }
-
-    throw new Error("School is required.");
-  }
-
-  const school = await prisma.school.findFirst({
-    where: {
-      id: postedSchoolId,
-      isActive: true,
-      ...(access.isSuperAdmin
-        ? {}
-        : {
-            id: {
-              in: access.schoolIds,
-            },
-          }),
-    },
-    select: {
-      id: true,
-    },
-  });
-
-  if (!school) {
-    throw new Error("You do not have access to this school.");
-  }
-
-  return school.id;
-}
-
 function collectFormItems(formData: FormData): CollectedItem[] {
   const itemMap = new Map<string, number>();
 
@@ -303,7 +202,10 @@ function collectFormItems(formData: FormData): CollectedItem[] {
       throw new Error(`Product is missing in row ${index + 1}.`);
     }
 
-    const quantity = parsePositiveInteger(rawQuantity, `Quantity in row ${index + 1}`);
+    const quantity = parsePositiveInteger(
+      rawQuantity,
+      `Quantity in row ${index + 1}`,
+    );
 
     itemMap.set(
       inventoryStockId,
@@ -410,9 +312,10 @@ export async function searchPosProductsAction(input: {
 }): Promise<PosSearchResult[]> {
   const access = await getAccessScope();
 
-  const schoolId = await resolveSchoolId({
+  const schoolId = await resolveAccessibleSchoolId({
     postedSchoolId: clean(input.schoolId),
     access,
+    permission: Permission.POS_BILLING,
   });
 
   const searchText = normalizeSearch(clean(input.code));
@@ -539,9 +442,10 @@ export async function searchPosProductsAction(input: {
 export async function createPosInvoiceAction(formData: FormData): Promise<void> {
   const access = await getAccessScope();
 
-  const schoolId = await resolveSchoolId({
+  const schoolId = await resolveAccessibleSchoolId({
     postedSchoolId: clean(formData.get("schoolId")),
     access,
+    permission: Permission.POS_BILLING,
   });
 
   const customerName = clean(formData.get("customerName"));
@@ -590,7 +494,11 @@ export async function createPosInvoiceAction(formData: FormData): Promise<void> 
       const postedPaidAmount = clean(formData.get("paidAmount"));
 
       const paidAmount = postedPaidAmount
-        ? parseMoneyInput(formData.get("paidAmount"), "Paid amount", payableAmount)
+        ? parseMoneyInput(
+            formData.get("paidAmount"),
+            "Paid amount",
+            payableAmount,
+          )
         : payableAmount;
 
       if (paidAmount < 0) {
@@ -728,5 +636,5 @@ export async function createPosInvoiceAction(formData: FormData): Promise<void> 
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${invoiceId}`);
 
-redirect(`/invoices/${invoiceId}`);
+  redirect(`/invoices/${invoiceId}`);
 }

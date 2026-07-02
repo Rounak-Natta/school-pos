@@ -89,8 +89,7 @@ function ModeCard({
 }
 
 export default async function PaymentsReportPage({ searchParams }: PageProps) {
-  const user = await requireUser();
-  const access = await getInvoiceAccessScope(user);
+  const access = await getInvoiceAccessScope();
 
   if (!access.isSuperAdmin && access.schoolIds.length === 0) {
     return (

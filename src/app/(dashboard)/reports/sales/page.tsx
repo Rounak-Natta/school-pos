@@ -47,8 +47,7 @@ function buildFilters(params: ReportSearchParams): SalesReportFilters {
 }
 
 export default async function SalesReportPage({ searchParams }: PageProps) {
-  const user = await requireUser();
-  const access = await getInvoiceAccessScope(user);
+  const access = await getInvoiceAccessScope();
 
   if (!access.isSuperAdmin && access.schoolIds.length === 0) {
     return (

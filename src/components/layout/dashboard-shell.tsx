@@ -4,16 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 
+type NavGroup = "Business" | "Operations" | "Admin";
+
 type NavItem = {
   label: string;
   href: string;
   icon: string;
-  group: "Business" | "Operations" | "Admin";
+  group: NavGroup;
+  permission: string;
 };
 
 type DashboardShellProps = {
   children: ReactNode;
   userEmail: string;
+  permissions: string[];
   logoutAction: () => Promise<void>;
 };
 
@@ -23,88 +27,102 @@ const navItems: NavItem[] = [
     href: "/dashboard",
     icon: "⌂",
     group: "Business",
+    permission: "VIEW_DASHBOARD",
   },
   {
     label: "Analytics",
     href: "/analytics",
     icon: "↗",
     group: "Business",
+    permission: "VIEW_REPORTS",
   },
   {
     label: "Billing",
     href: "/pos",
     icon: "₹",
     group: "Business",
+    permission: "POS_BILLING",
   },
   {
     label: "Invoices",
     href: "/invoices",
     icon: "≡",
     group: "Business",
+    permission: "VIEW_INVOICES",
   },
   {
     label: "Reports",
     href: "/reports",
     icon: "▣",
     group: "Business",
+    permission: "VIEW_REPORTS",
   },
   {
     label: "Inventory",
     href: "/inventory",
     icon: "□",
     group: "Operations",
+    permission: "VIEW_INVENTORY",
   },
   {
     label: "Products",
     href: "/products",
     icon: "◈",
     group: "Operations",
+    permission: "VIEW_PRODUCTS",
   },
   {
     label: "Transfers",
     href: "/transfers",
     icon: "⇄",
     group: "Operations",
+    permission: "VIEW_TRANSFERS",
   },
   {
     label: "Students",
     href: "/students",
     icon: "◎",
     group: "Operations",
+    permission: "VIEW_STUDENTS",
   },
   {
     label: "Schools",
     href: "/schools",
     icon: "▤",
     group: "Admin",
+    permission: "MANAGE_SCHOOLS",
   },
   {
     label: "Users",
     href: "/users",
     icon: "◐",
     group: "Admin",
+    permission: "MANAGE_USERS",
   },
   {
     label: "Import / Export",
     href: "/import-export",
     icon: "⇅",
     group: "Admin",
+    permission: "IMPORT_EXPORT",
   },
   {
     label: "Audit Logs",
     href: "/audit-logs",
     icon: "◇",
     group: "Admin",
+    permission: "VIEW_AUDIT_LOGS",
   },
   {
     label: "Settings",
     href: "/settings",
     icon: "⚙",
     group: "Admin",
+    permission: "SETTINGS",
   },
 ];
 
-const groupOrder: NavItem["group"][] = ["Business", "Operations", "Admin"];
+const groupOrder: NavGroup[] = ["Business", "Operations", "Admin"];
 
 function isActivePath(pathname: string, href: string) {
   if (href === "/dashboard") {
@@ -136,17 +154,25 @@ function getInitials(email: string) {
 
 function SidebarContent({
   pathname,
+  permissions,
   onNavigate,
 }: {
   pathname: string;
+  permissions: string[];
   onNavigate?: () => void;
 }) {
+  const visibleItems = useMemo(() => {
+    return navItems.filter((item) => permissions.includes(item.permission));
+  }, [permissions]);
+
   const groupedItems = useMemo(() => {
-    return groupOrder.map((group) => ({
-      group,
-      items: navItems.filter((item) => item.group === group),
-    }));
-  }, []);
+    return groupOrder
+      .map((group) => ({
+        group,
+        items: visibleItems.filter((item) => item.group === group),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [visibleItems]);
 
   return (
     <div className="flex h-full flex-col">
@@ -214,6 +240,7 @@ function SidebarContent({
 export function DashboardShell({
   children,
   userEmail,
+  permissions,
   logoutAction,
 }: DashboardShellProps) {
   const pathname = usePathname();
@@ -221,11 +248,12 @@ export function DashboardShell({
 
   const pageTitle = getPageTitle(pathname);
   const initials = getInitials(userEmail);
+  const canCreateBill = permissions.includes("POS_BILLING");
 
   return (
     <div className="min-h-screen bg-slate-100">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-72 border-r border-slate-200 bg-white md:block">
-        <SidebarContent pathname={pathname} />
+        <SidebarContent pathname={pathname} permissions={permissions} />
       </aside>
 
       <div
@@ -247,6 +275,7 @@ export function DashboardShell({
         >
           <SidebarContent
             pathname={pathname}
+            permissions={permissions}
             onNavigate={() => setMobileOpen(false)}
           />
         </aside>
@@ -275,12 +304,14 @@ export function DashboardShell({
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <Link
-              href="/pos"
-              className="hidden h-10 items-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 sm:inline-flex"
-            >
-              New Bill
-            </Link>
+            {canCreateBill ? (
+              <Link
+                href="/pos"
+                className="hidden h-10 items-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 sm:inline-flex"
+              >
+                New Bill
+              </Link>
+            ) : null}
 
             <div className="hidden h-10 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 sm:flex">
               <div className="grid h-7 w-7 place-items-center rounded-full bg-slate-950 text-[11px] font-bold text-white">

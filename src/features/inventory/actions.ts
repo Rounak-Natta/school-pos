@@ -2,16 +2,21 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
 import { StockMovementType } from "@/generated/prisma/client";
-import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  getAccessScope,
+  Permission,
+  requirePermission,
+} from "@/lib/rbac";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
 }
 
 export async function adjustInventoryAction(formData: FormData) {
-  const user = await requireUser();
+  const access = await getAccessScope();
 
   const inventoryStockId = clean(formData.get("inventoryStockId"));
   const adjustmentType = clean(formData.get("adjustmentType"));
@@ -20,6 +25,10 @@ export async function adjustInventoryAction(formData: FormData) {
 
   if (!inventoryStockId) {
     throw new Error("Inventory stock is required.");
+  }
+
+  if (adjustmentType !== "IN" && adjustmentType !== "OUT") {
+    throw new Error("Valid adjustment type is required.");
   }
 
   if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -43,6 +52,8 @@ export async function adjustInventoryAction(formData: FormData) {
   if (!stock) {
     throw new Error("Stock record not found.");
   }
+
+  requirePermission(access, Permission.MANAGE_INVENTORY, stock.schoolId);
 
   const beforeQty = stock.quantity;
 
@@ -80,8 +91,8 @@ export async function adjustInventoryAction(formData: FormData) {
           note ||
           `Manual stock ${
             adjustmentType === "OUT" ? "decrease" : "increase"
-          } by ${user.email}`,
-        createdById: user.id,
+          } by ${access.email}`,
+        createdById: access.userId,
       },
     });
   });

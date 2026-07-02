@@ -1,8 +1,15 @@
 import Link from "next/link";
+
+import type { Prisma } from "@/generated/prisma/client";
 import { deleteProductAction } from "@/features/products/actions";
 import { PRODUCT_CATEGORIES } from "@/features/products/options";
-import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  getAccessScope,
+  hasPermission,
+  Permission,
+  requirePermission,
+} from "@/lib/rbac";
 
 type ProductsPageProps = {
   searchParams: Promise<{
@@ -12,154 +19,205 @@ type ProductsPageProps = {
   }>;
 };
 
+function buildProductWhere(input: {
+  access: Awaited<ReturnType<typeof getAccessScope>>;
+  selectedSchoolId: string;
+  selectedCategory: string;
+  query: string;
+}): Prisma.ProductWhereInput {
+  const { access, selectedSchoolId, selectedCategory, query } = input;
+
+  const where: Prisma.ProductWhereInput = {
+    deletedAt: null,
+    isActive: true,
+  };
+
+  if (access.isSuperAdmin) {
+    if (selectedSchoolId) {
+      where.schoolId = selectedSchoolId;
+    }
+  } else if (selectedSchoolId && access.schoolIds.includes(selectedSchoolId)) {
+    where.schoolId = selectedSchoolId;
+  } else {
+    where.schoolId = {
+      in: access.schoolIds,
+    };
+  }
+
+  if (selectedCategory) {
+    where.category = selectedCategory;
+  }
+
+  if (query) {
+    where.OR = [
+      {
+        name: {
+          contains: query,
+          mode: "insensitive",
+        },
+      },
+      {
+        category: {
+          contains: query,
+          mode: "insensitive",
+        },
+      },
+      {
+        variants: {
+          some: {
+            sku: {
+              contains: query,
+              mode: "insensitive",
+            },
+          },
+        },
+      },
+      {
+        variants: {
+          some: {
+            barcode: {
+              contains: query,
+              mode: "insensitive",
+            },
+          },
+        },
+      },
+      {
+        variants: {
+          some: {
+            size: {
+              contains: query,
+              mode: "insensitive",
+            },
+          },
+        },
+      },
+      {
+        variants: {
+          some: {
+            color: {
+              contains: query,
+              mode: "insensitive",
+            },
+          },
+        },
+      },
+      {
+        variants: {
+          some: {
+            className: {
+              contains: query,
+              mode: "insensitive",
+            },
+          },
+        },
+      },
+      {
+        variants: {
+          some: {
+            sectionName: {
+              contains: query,
+              mode: "insensitive",
+            },
+          },
+        },
+      },
+    ];
+  }
+
+  return where;
+}
+
 export default async function ProductsPage({ searchParams }: ProductsPageProps) {
-  await requireUser();
+  const access = await getAccessScope();
+
+  requirePermission(access, Permission.VIEW_PRODUCTS);
+
+  const canManageProducts = hasPermission(access, Permission.MANAGE_PRODUCTS);
+  const canViewInventory = hasPermission(access, Permission.VIEW_INVENTORY);
 
   const params = await searchParams;
 
-  const selectedSchoolId = params.schoolId || "";
+  const requestedSchoolId = params.schoolId || "";
+  const selectedSchoolId =
+    access.isSuperAdmin || access.schoolIds.includes(requestedSchoolId)
+      ? requestedSchoolId
+      : "";
+
   const selectedCategory = params.category || "";
   const query = params.q?.trim() || "";
 
-  const schools = await prisma.school.findMany({
-    where: {
-      isActive: true,
-    },
-    orderBy: {
-      name: "asc",
-    },
+  const schoolWhere: Prisma.SchoolWhereInput = {
+    isActive: true,
+    ...(access.isSuperAdmin
+      ? {}
+      : {
+          id: {
+            in: access.schoolIds,
+          },
+        }),
+  };
+
+  const productWhere = buildProductWhere({
+    access,
+    selectedSchoolId,
+    selectedCategory,
+    query,
   });
 
-  const products = await prisma.product.findMany({
-    where: {
-      deletedAt: null,
-      isActive: true,
-
-      ...(selectedSchoolId
-        ? {
-            schoolId: selectedSchoolId,
-          }
-        : {}),
-
-      ...(selectedCategory
-        ? {
-            category: selectedCategory,
-          }
-        : {}),
-
-      ...(query
-        ? {
-            OR: [
-              {
-                name: {
-                  contains: query,
-                  mode: "insensitive",
-                },
-              },
-              {
-                category: {
-                  contains: query,
-                  mode: "insensitive",
-                },
-              },
-              {
-                variants: {
-                  some: {
-                    sku: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-              {
-                variants: {
-                  some: {
-                    barcode: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-              {
-                variants: {
-                  some: {
-                    size: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-              {
-                variants: {
-                  some: {
-                    color: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-              {
-                variants: {
-                  some: {
-                    className: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-              {
-                variants: {
-                  some: {
-                    sectionName: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-            ],
-          }
-        : {}),
-    },
-    include: {
-      school: true,
-      variants: {
-        where: {
-          isActive: true,
-        },
-        include: {
-          inventoryStocks: true,
-        },
-        orderBy: [
-          {
-            sku: "asc",
-          },
-          {
-            size: "asc",
-          },
-        ],
-      },
-    },
-    orderBy: [
-      {
-        school: {
-          name: "asc",
-        },
-      },
-      {
+  const [schools, products] = await prisma.$transaction([
+    prisma.school.findMany({
+      where: schoolWhere,
+      orderBy: {
         name: "asc",
       },
-    ],
-  });
+    }),
+
+    prisma.product.findMany({
+      where: productWhere,
+      include: {
+        school: true,
+        variants: {
+          where: {
+            isActive: true,
+          },
+          include: {
+            inventoryStocks: {
+              select: {
+                schoolId: true,
+                quantity: true,
+                reorderLevel: true,
+              },
+            },
+          },
+          orderBy: [
+            {
+              sku: "asc",
+            },
+            {
+              size: "asc",
+            },
+          ],
+        },
+      },
+      orderBy: [
+        {
+          school: {
+            name: "asc",
+          },
+        },
+        {
+          name: "asc",
+        },
+      ],
+    }),
+  ]);
 
   const productVariantRows = products.flatMap((product) =>
     product.variants.map((variant) => {
-      const stock = variant.inventoryStocks[0];
+      const stock = variant.inventoryStocks.find(
+        (inventoryStock) => inventoryStock.schoolId === product.schoolId,
+      );
 
       return {
         product,
@@ -168,12 +226,12 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         quantity: stock?.quantity ?? 0,
         reorderLevel: stock?.reorderLevel ?? 0,
       };
-    })
+    }),
   );
 
   const totalStock = productVariantRows.reduce(
     (total, row) => total + row.quantity,
-    0
+    0,
   );
 
   const lowStockCount = productVariantRows.filter((row) => {
@@ -192,19 +250,23 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Link
-            href="/products/new"
-            className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white"
-          >
-            Add Product / Variant
-          </Link>
+          {canManageProducts ? (
+            <Link
+              href="/products/new"
+              className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white"
+            >
+              Add Product / Variant
+            </Link>
+          ) : null}
 
-          <Link
-            href="/inventory"
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
-          >
-            View Inventory
-          </Link>
+          {canViewInventory ? (
+            <Link
+              href="/inventory"
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+            >
+              View Inventory
+            </Link>
+          ) : null}
         </div>
       </div>
 
@@ -304,76 +366,84 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
           </thead>
 
           <tbody>
-            {productVariantRows.map(({ product, variant, quantity, reorderLevel }) => {
-              const isLowStock =
-                reorderLevel > 0 && quantity <= reorderLevel;
+            {productVariantRows.map(
+              ({ product, variant, quantity, reorderLevel }) => {
+                const isLowStock =
+                  reorderLevel > 0 && quantity <= reorderLevel;
 
-              return (
-                <tr
-                  key={variant.id}
-                  className="border-t border-slate-200 text-slate-700"
-                >
-                  <td className="px-4 py-3">{product.school.name}</td>
+                return (
+                  <tr
+                    key={variant.id}
+                    className="border-t border-slate-200 text-slate-700"
+                  >
+                    <td className="px-4 py-3">{product.school.name}</td>
 
-                  <td className="px-4 py-3 font-medium text-slate-950">
-                    {product.name}
-                  </td>
+                    <td className="px-4 py-3 font-medium text-slate-950">
+                      {product.name}
+                    </td>
 
-                  <td className="px-4 py-3">{product.category || "-"}</td>
+                    <td className="px-4 py-3">{product.category || "-"}</td>
 
-                  <td className="px-4 py-3">{variant.sku || "-"}</td>
+                    <td className="px-4 py-3">{variant.sku || "-"}</td>
 
-                  <td className="px-4 py-3">{variant.barcode || "-"}</td>
+                    <td className="px-4 py-3">{variant.barcode || "-"}</td>
 
-                  <td className="px-4 py-3">{variant.className || "-"}</td>
+                    <td className="px-4 py-3">{variant.className || "-"}</td>
 
-                  <td className="px-4 py-3">{variant.sectionName || "-"}</td>
+                    <td className="px-4 py-3">{variant.sectionName || "-"}</td>
 
-                  <td className="px-4 py-3">{variant.size || "-"}</td>
+                    <td className="px-4 py-3">{variant.size || "-"}</td>
 
-                  <td className="px-4 py-3">{variant.color || "-"}</td>
+                    <td className="px-4 py-3">{variant.color || "-"}</td>
 
-                  <td className="px-4 py-3">
-                    ₹{variant.mrp?.toString() || "0"}
-                  </td>
+                    <td className="px-4 py-3">
+                      ₹{variant.mrp?.toString() || "0"}
+                    </td>
 
-                  <td className="px-4 py-3">
-                    ₹{variant.salePrice.toString()}
-                  </td>
+                    <td className="px-4 py-3">
+                      ₹{variant.salePrice.toString()}
+                    </td>
 
-                  <td className="px-4 py-3 font-semibold">
-                    {quantity}
-                    {isLowStock ? (
-                      <span className="ml-2 rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
-                        Low
-                      </span>
-                    ) : null}
-                  </td>
+                    <td className="px-4 py-3 font-semibold">
+                      {quantity}
+                      {isLowStock ? (
+                        <span className="ml-2 rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+                          Low
+                        </span>
+                      ) : null}
+                    </td>
 
-                  <td className="px-4 py-3">{reorderLevel}</td>
+                    <td className="px-4 py-3">{reorderLevel}</td>
 
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <Link
-                        href={`/products/${product.id}/edit?variantId=${variant.id}`}
-                        className="text-slate-950 underline"
-                      >
-                        Edit
-                      </Link>
+                    <td className="px-4 py-3">
+                      {canManageProducts ? (
+                        <div className="flex items-center gap-3">
+                          <Link
+                            href={`/products/${product.id}/edit?variantId=${variant.id}`}
+                            className="text-slate-950 underline"
+                          >
+                            Edit
+                          </Link>
 
-                      <form action={deleteProductAction.bind(null, product.id)}>
-                        <button
-                          type="submit"
-                          className="text-red-600 underline"
-                        >
-                          Delete
-                        </button>
-                      </form>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+                          <form
+                            action={deleteProductAction.bind(null, product.id)}
+                          >
+                            <button
+                              type="submit"
+                              className="text-red-600 underline"
+                            >
+                              Delete
+                            </button>
+                          </form>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">View only</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              },
+            )}
 
             {productVariantRows.length === 0 ? (
               <tr>

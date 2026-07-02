@@ -1,21 +1,38 @@
 import Link from "next/link";
+
+import type { Prisma } from "@/generated/prisma/client";
 import { adjustInventoryAction } from "@/features/inventory/actions";
-import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  getAccessScope,
+  Permission,
+  requirePermission,
+} from "@/lib/rbac";
 
 export default async function InventoryAdjustmentsPage() {
-  await requireUser();
+  const access = await getAccessScope();
 
-  const stocks = await prisma.inventoryStock.findMany({
-    where: {
-      productVariant: {
+  requirePermission(access, Permission.MANAGE_INVENTORY);
+
+  const stockWhere: Prisma.InventoryStockWhereInput = {
+    ...(access.isSuperAdmin
+      ? {}
+      : {
+          schoolId: {
+            in: access.schoolIds,
+          },
+        }),
+    productVariant: {
+      isActive: true,
+      product: {
         isActive: true,
-        product: {
-          isActive: true,
-          deletedAt: null,
-        },
+        deletedAt: null,
       },
     },
+  };
+
+  const stocks = await prisma.inventoryStock.findMany({
+    where: stockWhere,
     include: {
       school: true,
       productVariant: {
@@ -81,6 +98,7 @@ export default async function InventoryAdjustmentsPage() {
                 <option key={stock.id} value={stock.id}>
                   {stock.school.name} — {product.name}
                   {variant.sku ? ` — SKU: ${variant.sku}` : ""}
+                  {variant.barcode ? ` — Barcode: ${variant.barcode}` : ""}
                   {variant.size ? ` — Size: ${variant.size}` : ""}
                   {variant.color ? ` — Color: ${variant.color}` : ""}
                   {` — Current Qty: ${stock.quantity}`}
@@ -88,6 +106,12 @@ export default async function InventoryAdjustmentsPage() {
               );
             })}
           </select>
+
+          {stocks.length === 0 ? (
+            <p className="text-xs text-red-600">
+              No stock records available for your school access.
+            </p>
+          ) : null}
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -143,7 +167,8 @@ export default async function InventoryAdjustmentsPage() {
 
           <button
             type="submit"
-            className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white"
+            disabled={stocks.length === 0}
+            className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             Save Adjustment
           </button>

@@ -3,8 +3,8 @@ import { notFound } from "next/navigation";
 
 import { InvoiceStatus, type Prisma } from "@/generated/prisma/client";
 import { getInvoiceAccessScope } from "@/features/pos/invoice-access";
-import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { hasPermission, Permission } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -137,8 +137,8 @@ function getCustomerClass(invoice: {
 export default async function InvoiceDetailPage({
   params,
 }: InvoicePageProps) {
-  const user = await requireUser();
-  const access = await getInvoiceAccessScope(user);
+  const access = await getInvoiceAccessScope();
+  const canCreateBill = hasPermission(access, Permission.POS_BILLING);
 
   if (!access.isSuperAdmin && access.schoolIds.length === 0) {
     notFound();
@@ -249,6 +249,7 @@ export default async function InvoiceDetailPage({
 
   const stockMovements = await prisma.stockMovement.findMany({
     where: {
+      schoolId: invoice.school.id,
       referenceType: "INVOICE",
       referenceId: invoice.id,
     },
@@ -315,12 +316,14 @@ export default async function InvoiceDetailPage({
             All Invoices
           </Link>
 
-          <Link
-            href="/pos"
-            className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            New Bill
-          </Link>
+          {canCreateBill ? (
+            <Link
+              href="/pos"
+              className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              New Bill
+            </Link>
+          ) : null}
 
           <Link
             href={`/invoices/${invoice.id}/pdf`}
@@ -382,8 +385,8 @@ export default async function InvoiceDetailPage({
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500">
                   {invoice.items.length} line item
-                  {invoice.items.length === 1 ? "" : "s"} · {totalQuantity} total
-                  quantity
+                  {invoice.items.length === 1 ? "" : "s"} · {totalQuantity}{" "}
+                  total quantity
                 </p>
               </div>
             </div>

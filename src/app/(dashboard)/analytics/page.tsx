@@ -5,8 +5,11 @@ import {
   getAnalyticsDashboardData,
   type AnalyticsRange,
 } from "@/features/analytics/analytics-service";
-import { getInvoiceAccessScope } from "@/features/pos/invoice-access";
-import { requireUser } from "@/lib/auth";
+import {
+  getAccessScope,
+  Permission,
+  requirePermission,
+} from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +34,7 @@ function getParam(params: SearchParams, key: string) {
 
 function resolveRange(value: string): AnalyticsRange {
   const allowed: AnalyticsRange[] = ["today", "7d", "30d", "this-month", "all"];
+
   return allowed.includes(value as AnalyticsRange)
     ? (value as AnalyticsRange)
     : "today";
@@ -45,12 +49,12 @@ function money(value: number) {
 }
 
 function compactMoney(value: number) {
-  if (value >= 10000000) {
-    return `₹${(value / 10000000).toFixed(2)}Cr`;
+  if (value >= 10_000_000) {
+    return `₹${(value / 10_000_000).toFixed(2)}Cr`;
   }
 
-  if (value >= 100000) {
-    return `₹${(value / 100000).toFixed(2)}L`;
+  if (value >= 100_000) {
+    return `₹${(value / 100_000).toFixed(2)}L`;
   }
 
   return money(value);
@@ -192,8 +196,9 @@ function ProductMeta(product: {
 }
 
 export default async function AnalyticsPage({ searchParams }: PageProps) {
-  const user = await requireUser();
-  const access = await getInvoiceAccessScope(user);
+  const access = await getAccessScope();
+
+  requirePermission(access, Permission.VIEW_REPORTS);
 
   if (!access.isSuperAdmin && access.schoolIds.length === 0) {
     return (
@@ -208,7 +213,12 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
 
   const params = await Promise.resolve(searchParams ?? {});
   const range = resolveRange(getParam(params, "range"));
-  const schoolId = getParam(params, "schoolId");
+  const requestedSchoolId = getParam(params, "schoolId");
+
+  const schoolId =
+    access.isSuperAdmin || access.schoolIds.includes(requestedSchoolId)
+      ? requestedSchoolId
+      : "";
 
   const data = await getAnalyticsDashboardData({
     access,
@@ -244,11 +254,16 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
     },
   ];
 
-  const maxPayment = Math.max(...data.paymentModes.map((item) => item.amount), 0);
+  const maxPayment = Math.max(
+    ...data.paymentModes.map((item) => item.amount),
+    0,
+  );
+
   const maxSchoolRevenue = Math.max(
     ...data.schoolRevenue.map((item) => item.revenue),
     0,
   );
+
   const maxCashierRevenue = Math.max(
     ...data.cashierSales.map((item) => item.revenue),
     0,
@@ -653,4 +668,4 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
       </div>
     </div>
   );
-}
+} 

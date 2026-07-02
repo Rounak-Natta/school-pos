@@ -2,8 +2,8 @@ import Link from "next/link";
 
 import { InvoiceStatus, type Prisma } from "@/generated/prisma/client";
 import { getInvoiceAccessScope } from "@/features/pos/invoice-access";
-import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { hasPermission, Permission } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -145,8 +145,8 @@ function getStatusClass(status: InvoiceStatus) {
 }
 
 export default async function InvoicesPage({ searchParams }: PageProps) {
-  const user = await requireUser();
-  const access = await getInvoiceAccessScope(user);
+  const access = await getInvoiceAccessScope();
+  const canCreateBill = hasPermission(access, Permission.POS_BILLING);
 
   if (!access.isSuperAdmin && access.schoolIds.length === 0) {
     return (
@@ -423,12 +423,14 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
           </p>
         </div>
 
-        <Link
-          href="/pos"
-          className="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
-        >
-          New POS Bill
-        </Link>
+        {canCreateBill ? (
+          <Link
+            href="/pos"
+            className="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+          >
+            New POS Bill
+          </Link>
+        ) : null}
       </div>
 
       <form
@@ -666,6 +668,13 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
                     </td>
 
                     <td className="px-4 py-3 text-right">
+                      <Link
+                        href={`/invoices/${invoice.id}`}
+                        className="mr-2 inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-white"
+                      >
+                        View
+                      </Link>
+
                       <Link
                         href={`/invoices/${invoice.id}/pdf`}
                         className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-white"

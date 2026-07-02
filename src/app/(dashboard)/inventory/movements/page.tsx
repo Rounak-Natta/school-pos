@@ -1,6 +1,12 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  getAccessScope,
+  Permission,
+  requirePermission,
+} from "@/lib/rbac";
 
 type InventoryMovementsPageProps = {
   searchParams: Promise<{
@@ -9,93 +15,170 @@ type InventoryMovementsPageProps = {
   }>;
 };
 
+function buildMovementWhere(input: {
+  access: Awaited<ReturnType<typeof getAccessScope>>;
+  selectedSchoolId: string;
+  query: string;
+}): Prisma.StockMovementWhereInput {
+  const { access, selectedSchoolId, query } = input;
+
+  const where: Prisma.StockMovementWhereInput = {
+    productVariant: {
+      isActive: true,
+      product: {
+        isActive: true,
+        deletedAt: null,
+      },
+    },
+  };
+
+  if (access.isSuperAdmin) {
+    if (selectedSchoolId) {
+      where.schoolId = selectedSchoolId;
+    }
+  } else if (selectedSchoolId && access.schoolIds.includes(selectedSchoolId)) {
+    where.schoolId = selectedSchoolId;
+  } else {
+    where.schoolId = {
+      in: access.schoolIds,
+    };
+  }
+
+  if (query) {
+    where.OR = [
+      {
+        productVariant: {
+          product: {
+            name: {
+              contains: query,
+              mode: "insensitive",
+            },
+          },
+        },
+      },
+      {
+        productVariant: {
+          product: {
+            category: {
+              contains: query,
+              mode: "insensitive",
+            },
+          },
+        },
+      },
+      {
+        productVariant: {
+          sku: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        productVariant: {
+          barcode: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        productVariant: {
+          size: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        productVariant: {
+          color: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        productVariant: {
+          className: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        productVariant: {
+          sectionName: {
+            contains: query,
+            mode: "insensitive",
+          },
+        },
+      },
+    ];
+  }
+
+  return where;
+}
+
 export default async function InventoryMovementsPage({
   searchParams,
 }: InventoryMovementsPageProps) {
-  await requireUser();
+  const access = await getAccessScope();
+
+  requirePermission(access, Permission.VIEW_INVENTORY);
 
   const params = await searchParams;
-  const selectedSchoolId = params.schoolId || "";
-  const query = params.q || "";
 
-  const schools = await prisma.school.findMany({
-    where: {
-      isActive: true,
-    },
-    orderBy: {
-      name: "asc",
-    },
+  const requestedSchoolId = params.schoolId || "";
+  const selectedSchoolId =
+    access.isSuperAdmin || access.schoolIds.includes(requestedSchoolId)
+      ? requestedSchoolId
+      : "";
+
+  const query = params.q?.trim() || "";
+
+  const schoolWhere: Prisma.SchoolWhereInput = {
+    isActive: true,
+    ...(access.isSuperAdmin
+      ? {}
+      : {
+          id: {
+            in: access.schoolIds,
+          },
+        }),
+  };
+
+  const movementWhere = buildMovementWhere({
+    access,
+    selectedSchoolId,
+    query,
   });
 
-  const movements = await prisma.stockMovement.findMany({
-    where: {
-      ...(selectedSchoolId
-        ? {
-            schoolId: selectedSchoolId,
-          }
-        : {}),
-      productVariant: {
-        product: {
-          deletedAt: null,
-          ...(query
-            ? {
-                OR: [
-                  {
-                    name: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                  {
-                    category: {
-                      contains: query,
-                      mode: "insensitive",
-                    },
-                  },
-                ],
-              }
-            : {}),
-        },
-        ...(query
-          ? {
-              OR: [
-                {
-                  sku: {
-                    contains: query,
-                    mode: "insensitive",
-                  },
-                },
-                {
-                  size: {
-                    contains: query,
-                    mode: "insensitive",
-                  },
-                },
-                {
-                  color: {
-                    contains: query,
-                    mode: "insensitive",
-                  },
-                },
-              ],
-            }
-          : {}),
+  const [schools, movements] = await prisma.$transaction([
+    prisma.school.findMany({
+      where: schoolWhere,
+      orderBy: {
+        name: "asc",
       },
-    },
-    include: {
-      school: true,
-      createdBy: true,
-      productVariant: {
-        include: {
-          product: true,
+    }),
+
+    prisma.stockMovement.findMany({
+      where: movementWhere,
+      include: {
+        school: true,
+        createdBy: true,
+        productVariant: {
+          include: {
+            product: true,
+          },
         },
       },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    take: 300,
-  });
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 300,
+    }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -119,7 +202,9 @@ export default async function InventoryMovementsPage({
           defaultValue={selectedSchoolId}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
         >
-          <option value="">All schools</option>
+          <option value="">
+            {access.isSuperAdmin ? "All schools" : "My school"}
+          </option>
 
           {schools.map((school) => (
             <option key={school.id} value={school.id}>
@@ -131,7 +216,7 @@ export default async function InventoryMovementsPage({
         <input
           name="q"
           defaultValue={query}
-          placeholder="Search product, category, SKU, size or color"
+          placeholder="Search product, category, SKU, barcode, size or color"
           className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
         />
 
@@ -143,8 +228,8 @@ export default async function InventoryMovementsPage({
         </button>
       </form>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full min-w-[1100px] text-left text-sm">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
               <th className="px-4 py-3 font-medium">Date</th>
@@ -169,24 +254,33 @@ export default async function InventoryMovementsPage({
                 <td className="px-4 py-3">
                   {movement.createdAt.toLocaleString("en-IN")}
                 </td>
+
                 <td className="px-4 py-3">{movement.school.name}</td>
+
                 <td className="px-4 py-3 font-medium text-slate-950">
                   {movement.productVariant.product.name}
                 </td>
+
                 <td className="px-4 py-3">
                   {movement.productVariant.sku || "-"}
                 </td>
+
                 <td className="px-4 py-3">{movement.type}</td>
+
                 <td className="px-4 py-3 font-semibold">
                   {movement.quantity > 0
                     ? `+${movement.quantity}`
                     : movement.quantity}
                 </td>
+
                 <td className="px-4 py-3">{movement.beforeQty}</td>
+
                 <td className="px-4 py-3">{movement.afterQty}</td>
+
                 <td className="px-4 py-3">
                   {movement.createdBy?.email || "-"}
                 </td>
+
                 <td className="px-4 py-3">{movement.note || "-"}</td>
               </tr>
             ))}

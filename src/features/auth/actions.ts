@@ -12,7 +12,7 @@ export type LoginState = {
 
 export async function loginAction(
   _previousState: LoginState,
-  formData: FormData
+  formData: FormData,
 ): Promise<LoginState> {
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
@@ -35,6 +35,9 @@ export async function loginAction(
       schoolRoles: {
         where: {
           isActive: true,
+          school: {
+            isActive: true,
+          },
         },
         include: {
           school: true,
@@ -54,6 +57,12 @@ export async function loginAction(
   if (!isPasswordValid) {
     return {
       error: "Invalid email or password.",
+    };
+  }
+
+  if (user.schoolRoles.length === 0) {
+    return {
+      error: "Your account does not have any active school access.",
     };
   }
 

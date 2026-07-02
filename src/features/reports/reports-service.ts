@@ -27,6 +27,19 @@ const ACTIVE_INVOICE_STATUSES = [
   InvoiceStatus.PARTIALLY_PAID,
 ];
 
+function getGroupCount(count: unknown) {
+  if (
+    count &&
+    typeof count === "object" &&
+    "_all" in count &&
+    typeof (count as { _all?: unknown })._all === "number"
+  ) {
+    return (count as { _all: number })._all;
+  }
+
+  return 0;
+}
+
 function getSchoolIdFilter(
   access: ReportsAccessScope,
   requestedSchoolId: string,
@@ -499,8 +512,8 @@ export async function getPaymentsReport(input: {
     },
     modeGroups: modeGroups.map((group) => ({
       mode: group.mode as PaymentMode,
-      amount: toNumber(group._sum.amount),
-      count: group._count._all,
+      amount: toNumber(group._sum?.amount),
+      count: getGroupCount(group._count),
     })),
     rows: payments.map((payment) => ({
       id: payment.id,
@@ -623,6 +636,9 @@ export async function getProductSalesReport(input: {
       _count: {
         _all: true,
       },
+      orderBy: {
+        productVariantId: "asc",
+      },
     }),
     prisma.invoiceItem.groupBy({
       by: ["productVariantId"],
@@ -700,9 +716,9 @@ export async function getProductSalesReport(input: {
         color: variant?.color ?? "",
         unit: variant?.unit ?? "PCS",
         salePrice: toNumber(variant?.salePrice),
-        quantity: group._sum.quantity ?? 0,
-        revenue: toNumber(group._sum.lineTotal),
-        lineCount: group._count._all,
+        quantity: group._sum?.quantity ?? 0,
+        revenue: toNumber(group._sum?.lineTotal),
+        lineCount: getGroupCount(group._count),
       };
     }),
   };
@@ -927,6 +943,9 @@ export async function getCashierReport(input: {
       _count: {
         _all: true,
       },
+      orderBy: {
+        billedById: "asc",
+      },
     }),
     prisma.invoice.groupBy({
       by: ["billedById"],
@@ -983,8 +1002,8 @@ export async function getCashierReport(input: {
     },
     rows: groups.map((group) => {
       const user = group.billedById ? userMap.get(group.billedById) : null;
-      const revenue = toNumber(group._sum.payableAmount);
-      const invoiceCount = group._count._all;
+      const revenue = toNumber(group._sum?.payableAmount);
+      const invoiceCount = getGroupCount(group._count);
 
       return {
         userId: group.billedById || "system",
@@ -992,8 +1011,8 @@ export async function getCashierReport(input: {
         email: user?.email || "",
         invoiceCount,
         revenue,
-        paid: toNumber(group._sum.paidAmount),
-        due: toNumber(group._sum.balanceAmount),
+        paid: toNumber(group._sum?.paidAmount),
+        due: toNumber(group._sum?.balanceAmount),
         averageBill: invoiceCount > 0 ? revenue / invoiceCount : 0,
       };
     }),
@@ -1033,6 +1052,9 @@ export async function getSchoolReport(input: {
       where: invoiceWhere,
       _count: {
         _all: true,
+      },
+      orderBy: {
+        schoolId: "asc",
       },
     }),
     prisma.invoice.groupBy({
@@ -1118,8 +1140,8 @@ export async function getSchoolReport(input: {
     },
     rows: groups.map((group) => {
       const school = schoolMap.get(group.schoolId);
-      const revenue = toNumber(group._sum.payableAmount);
-      const invoiceCount = group._count._all;
+      const revenue = toNumber(group._sum?.payableAmount);
+      const invoiceCount = getGroupCount(group._count);
 
       return {
         schoolId: group.schoolId,
@@ -1128,8 +1150,8 @@ export async function getSchoolReport(input: {
         invoiceCount,
         itemsSold: itemQtyMap.get(group.schoolId) ?? 0,
         revenue,
-        paid: toNumber(group._sum.paidAmount),
-        due: toNumber(group._sum.balanceAmount),
+        paid: toNumber(group._sum?.paidAmount),
+        due: toNumber(group._sum?.balanceAmount),
         averageBill: invoiceCount > 0 ? revenue / invoiceCount : 0,
       };
     }),

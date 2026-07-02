@@ -141,8 +141,7 @@ function getDateFilter(request: NextRequest, field: "createdAt" | "paidAt") {
 }
 
 export async function GET(request: NextRequest) {
-  const user = await requireUser();
-  const access = await getInvoiceAccessScope(user);
+  const access = await getInvoiceAccessScope();
 
   if (!access.isSuperAdmin && access.schoolIds.length === 0) {
     return NextResponse.json(
