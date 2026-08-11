@@ -1,84 +1,227 @@
 @import "tailwindcss";
 
+/* =========================================================
+   SCHOOL POS
+   Global Design System
+   Clean • Professional • Modern • High Contrast
+   ========================================================= */
+
 :root {
-  --background: #f6f8fb;
+  /* =======================================================
+     BASE
+     ======================================================= */
+
+  --background: #f6f7f9;
   --foreground: #111827;
+
   --card: #ffffff;
   --card-soft: #f9fafb;
-  --border: #e5eaf2;
-  --muted: #667085;
-  --muted-soft: #94a3b8;
+  --card-hover: #f3f4f6;
 
-  --primary: #182237;
-  --primary-hover: #22304a;
-  --primary-soft: #eef3ff;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
 
-  --success: #047857;
-  --success-soft: #ecfdf5;
+  /* =======================================================
+     TEXT
+     ======================================================= */
+
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+
+  --muted: #6b7280;
+  --muted-soft: #9ca3af;
+
+  /* =======================================================
+     PRIMARY
+     ======================================================= */
+
+  --primary: #111827;
+  --primary-hover: #1f2937;
+  --primary-active: #0f172a;
+
+  --primary-foreground: #ffffff;
+
+  --primary-soft: #f1f5f9;
+  --primary-soft-hover: #e2e8f0;
+
+  /* =======================================================
+     BRAND / ACCENT
+     ======================================================= */
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff6ff;
+
+  /* =======================================================
+     STATUS
+     ======================================================= */
+
+  --success: #15803d;
+  --success-hover: #166534;
+  --success-soft: #f0fdf4;
+
   --warning: #b45309;
+  --warning-hover: #92400e;
   --warning-soft: #fffbeb;
+
   --danger: #dc2626;
+  --danger-hover: #b91c1c;
   --danger-soft: #fef2f2;
 
-  --radius-card: 22px;
-  --shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.06);
-  --shadow-card: 0 4px 14px rgba(15, 23, 42, 0.06);
+  --info: #2563eb;
+  --info-soft: #eff6ff;
+
+  /* =======================================================
+     RADIUS
+     ======================================================= */
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-card: 18px;
+
+  /* =======================================================
+     SHADOWS
+     ======================================================= */
+
+  --shadow-xs:
+    0 1px 2px rgba(15, 23, 42, 0.04);
+
+  --shadow-sm:
+    0 1px 3px rgba(15, 23, 42, 0.06),
+    0 1px 2px rgba(15, 23, 42, 0.03);
+
+  --shadow-card:
+    0 2px 8px rgba(15, 23, 42, 0.05);
+
+  --shadow-soft:
+    0 8px 24px rgba(15, 23, 42, 0.06);
+
+  --shadow-dropdown:
+    0 16px 40px rgba(15, 23, 42, 0.12);
 }
+
+
+/* =========================================================
+   TAILWIND V4 THEME
+   ========================================================= */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
   --color-card: var(--card);
   --color-border: var(--border);
   --color-muted: var(--muted);
 
-  /*
-    Softer Slate Palette
-    This improves all current Tailwind classes like:
-    bg-slate-950, text-slate-950, border-slate-200, bg-slate-100, etc.
-  */
-  --color-slate-50: #f9fafb;
-  --color-slate-100: #f1f5f9;
-  --color-slate-200: #e5eaf2;
-  --color-slate-300: #cbd5e1;
-  --color-slate-400: #94a3b8;
-  --color-slate-500: #667085;
-  --color-slate-600: #475569;
-  --color-slate-700: #344054;
-  --color-slate-800: #22304a;
-  --color-slate-900: #182237;
-  --color-slate-950: #101828;
+  /* =======================================================
+     SLATE
+     ======================================================= */
 
-  /*
-    Softer Green / Amber / Red
-  */
-  --color-emerald-50: #effcf6;
-  --color-emerald-100: #dff8ec;
-  --color-emerald-200: #b8efd5;
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #172033;
+  --color-slate-950: #0f172a;
+
+
+  /* =======================================================
+     BLUE
+     ======================================================= */
+
+  --color-blue-50: #eff6ff;
+  --color-blue-100: #dbeafe;
+  --color-blue-200: #bfdbfe;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-700: #1d4ed8;
+  --color-blue-800: #1e40af;
+  --color-blue-900: #1e3a8a;
+  --color-blue-950: #172554;
+
+
+  /* =======================================================
+     EMERALD
+     ======================================================= */
+
+  --color-emerald-50: #ecfdf5;
+  --color-emerald-100: #d1fae5;
+  --color-emerald-200: #a7f3d0;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
   --color-emerald-600: #059669;
   --color-emerald-700: #047857;
-  --color-emerald-950: #064e3b;
+  --color-emerald-800: #065f46;
+  --color-emerald-900: #064e3b;
+  --color-emerald-950: #022c22;
+
+
+  /* =======================================================
+     AMBER
+     ======================================================= */
 
   --color-amber-50: #fffbeb;
   --color-amber-100: #fef3c7;
   --color-amber-200: #fde68a;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
   --color-amber-600: #d97706;
   --color-amber-700: #b45309;
-  --color-amber-950: #78350f;
+  --color-amber-800: #92400e;
+  --color-amber-900: #78350f;
+  --color-amber-950: #451a03;
+
+
+  /* =======================================================
+     RED
+     ======================================================= */
 
   --color-red-50: #fef2f2;
   --color-red-100: #fee2e2;
   --color-red-200: #fecaca;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
   --color-red-600: #dc2626;
   --color-red-700: #b91c1c;
+  --color-red-800: #991b1b;
+  --color-red-900: #7f1d1d;
+  --color-red-950: #450a0a;
+
+
+  /* =======================================================
+     FONT
+     ======================================================= */
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-* {
+
+/* =========================================================
+   RESET
+   ========================================================= */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
+
 
 html {
   min-height: 100%;
@@ -86,125 +229,594 @@ html {
   background: var(--background);
 }
 
+
 body {
-  min-height: 100%;
+  min-height: 100vh;
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(226, 232, 240, 0.8), transparent 34rem),
-    linear-gradient(180deg, #f8fafc 0%, var(--background) 38%, #f6f8fb 100%);
+
+  background: var(--background);
+
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+
+  font-family:
+    var(--font-geist-sans),
+    Arial,
+    Helvetica,
+    sans-serif;
+
   font-feature-settings:
     "rlig" 1,
     "calt" 1;
-  text-rendering: geometricPrecision;
+
+  text-rendering: optimizeLegibility;
+
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
+
+/* =========================================================
+   DEFAULT TEXT
+   ========================================================= */
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin-top: 0;
+  color: var(--text-primary);
 }
 
-button {
-  cursor: pointer;
+
+p {
+  margin-top: 0;
 }
 
-button:disabled {
-  cursor: not-allowed;
+
+strong {
+  font-weight: 600;
 }
+
+
+/* =========================================================
+   LINKS
+   ========================================================= */
 
 a {
   color: inherit;
   text-decoration: none;
+
+  -webkit-tap-highlight-color: transparent;
 }
+
+
+/* =========================================================
+   BUTTON RESET
+   ========================================================= */
+
+button {
+  font: inherit;
+  cursor: pointer;
+
+  -webkit-tap-highlight-color: transparent;
+}
+
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+
+/* =========================================================
+   IMPORTANT DARK BUTTON FIX
+   ========================================================= */
+
+/*
+  Your screenshot had dark buttons with dark text.
+
+  These rules make all Tailwind slate dark buttons readable.
+*/
+
+button.bg-slate-950,
+a.bg-slate-950,
+button.bg-slate-900,
+a.bg-slate-900 {
+  color: #ffffff !important;
+}
+
+
+button.bg-slate-950 *,
+a.bg-slate-950 *,
+button.bg-slate-900 *,
+a.bg-slate-900 * {
+  color: inherit !important;
+}
+
+
+/* Icons inside dark buttons */
+
+button.bg-slate-950 svg,
+a.bg-slate-950 svg,
+button.bg-slate-900 svg,
+a.bg-slate-900 svg {
+  color: #ffffff !important;
+  stroke: currentColor;
+}
+
+
+/* =========================================================
+   ACTIVE SIDEBAR FIX
+   ========================================================= */
+
+/*
+  Fixes:
+  Billing
+  Dashboard active states
+  Any future active navigation item
+*/
+
+nav a.bg-slate-950,
+aside a.bg-slate-950,
+nav button.bg-slate-950,
+aside button.bg-slate-950 {
+  background: var(--primary-active) !important;
+  color: #ffffff !important;
+}
+
+
+nav a.bg-slate-950 *,
+aside a.bg-slate-950 *,
+nav button.bg-slate-950 *,
+aside button.bg-slate-950 * {
+  color: inherit !important;
+}
+
+
+nav a.bg-slate-950 svg,
+aside a.bg-slate-950 svg,
+nav button.bg-slate-950 svg,
+aside button.bg-slate-950 svg {
+  color: #ffffff !important;
+}
+
+
+/* aria-current active navigation */
+
+[aria-current="page"] {
+  color: #ffffff;
+}
+
+
+[aria-current="page"].bg-slate-950,
+[aria-current="page"].bg-slate-900 {
+  background: var(--primary-active) !important;
+  color: #ffffff !important;
+}
+
+
+[aria-current="page"].bg-slate-950 *,
+[aria-current="page"].bg-slate-900 * {
+  color: inherit !important;
+}
+
+
+/* =========================================================
+   OPTIONAL ACTIVE SIDEBAR POLISH
+   ========================================================= */
+
+aside a.bg-slate-950,
+aside button.bg-slate-950 {
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.12),
+    0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+
+/* Active menu icon bubble */
+
+aside a.bg-slate-950 > div,
+aside button.bg-slate-950 > div {
+  color: #ffffff;
+}
+
+
+/* =========================================================
+   FORM ELEMENTS
+   ========================================================= */
 
 input,
 select,
 textarea {
+  font: inherit;
+
   color: var(--foreground);
+
+  background: #ffffff;
+
+  border-color: var(--border);
 }
+
 
 input::placeholder,
 textarea::placeholder {
-  color: #98a2b3;
+  color: var(--muted-soft);
 }
+
+
+/* =========================================================
+   AUTOFILL
+   ========================================================= */
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--foreground);
+
+  box-shadow:
+    0 0 0 1000px #ffffff inset;
+
+  transition:
+    background-color 9999s ease-in-out 0s;
+}
+
+
+/* =========================================================
+   NUMBER INPUT
+   ========================================================= */
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  margin: 0;
+
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+
+input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+
+/* =========================================================
+   SELECTION
+   ========================================================= */
 
 ::selection {
   background: #dbeafe;
-  color: #0f172a;
+  color: #172554;
 }
 
-/* Better focus style */
+
+/* =========================================================
+   FOCUS
+   ========================================================= */
+
 :focus-visible {
-  outline: 3px solid rgba(59, 130, 246, 0.22);
+  outline: 3px solid rgba(37, 99, 235, 0.16);
   outline-offset: 2px;
 }
 
-/* Premium scrollbar */
+
+/* =========================================================
+   SCROLLBAR
+   ========================================================= */
+
 * {
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
 }
 
+
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
+
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border: 3px solid transparent;
+
+  border: 2px solid transparent;
   border-radius: 999px;
+
   background-clip: content-box;
 }
+
 
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
-  border: 3px solid transparent;
+
+  border: 2px solid transparent;
+
   background-clip: content-box;
 }
 
-/* Remove ugly native number input arrows where possible */
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
-  margin: 0;
-  appearance: none;
-}
 
-input[type="number"] {
-  appearance: textfield;
-}
+/* =========================================================
+   TRANSITIONS
+   ========================================================= */
 
-/* Smooth UI transitions */
 button,
 a,
 input,
 select,
 textarea {
   transition:
-    background-color 180ms ease,
-    border-color 180ms ease,
-    color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease,
+    transform 160ms ease;
 }
 
-/* Better table rendering */
+
+/* =========================================================
+   TABLE
+   ========================================================= */
+
 table {
+  width: 100%;
+
   border-collapse: separate;
   border-spacing: 0;
 }
 
-/* Better mobile tap behavior */
-button,
-a {
-  -webkit-tap-highlight-color: transparent;
+
+thead {
+  background: #f8fafc;
+}
+
+
+th {
+  color: var(--text-secondary);
+
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+
+td {
+  color: var(--text-primary);
+}
+
+
+/* =========================================================
+   CARDS
+   ========================================================= */
+
+.kd-card,
+.pos-card {
+  background: var(--card);
+
+  border: 1px solid var(--border);
+
+  border-radius: var(--radius-card);
+
+  box-shadow: var(--shadow-card);
+}
+
+
+.kd-card:hover,
+.pos-card:hover {
+  border-color: var(--border-strong);
+}
+
+
+/* =========================================================
+   PRIMARY BUTTON
+   ========================================================= */
+
+.kd-btn-primary,
+.pos-btn-primary {
+  display: inline-flex;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 0.5rem;
+
+  min-height: 42px;
+
+  padding:
+    0.65rem
+    1rem;
+
+  border: 1px solid var(--primary);
+
+  border-radius: var(--radius-md);
+
+  background: var(--primary);
+
+  color: #ffffff !important;
+
+  font-weight: 600;
+
+  box-shadow: var(--shadow-xs);
+}
+
+
+.kd-btn-primary *,
+.pos-btn-primary * {
+  color: inherit !important;
+}
+
+
+.kd-btn-primary:hover,
+.pos-btn-primary:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+
+.kd-btn-primary:active,
+.pos-btn-primary:active {
+  background: var(--primary-active);
+
+  transform: translateY(1px);
+}
+
+
+/* =========================================================
+   SECONDARY BUTTON
+   ========================================================= */
+
+.kd-btn-secondary,
+.pos-btn-secondary {
+  display: inline-flex;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 0.5rem;
+
+  min-height: 42px;
+
+  padding:
+    0.65rem
+    1rem;
+
+  border: 1px solid var(--border);
+
+  border-radius: var(--radius-md);
+
+  background: #ffffff;
+
+  color: var(--text-primary);
+
+  font-weight: 500;
+}
+
+
+.kd-btn-secondary:hover,
+.pos-btn-secondary:hover {
+  background: var(--card-soft);
+
+  border-color: var(--border-strong);
+}
+
+
+/* =========================================================
+   INPUT
+   ========================================================= */
+
+.kd-input,
+.pos-input {
+  width: 100%;
+
+  min-height: 42px;
+
+  padding:
+    0.65rem
+    0.8rem;
+
+  border: 1px solid var(--border);
+
+  border-radius: var(--radius-md);
+
+  background: #ffffff;
+
+  color: var(--foreground);
+
+  outline: none;
+}
+
+
+.kd-input:hover,
+.pos-input:hover {
+  border-color: var(--border-strong);
+}
+
+
+.kd-input:focus,
+.pos-input:focus {
+  border-color: var(--accent);
+
+  box-shadow:
+    0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+
+/* =========================================================
+   BADGES
+   ========================================================= */
+
+.kd-badge-success,
+.pos-badge-success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+
+.kd-badge-warning,
+.pos-badge-warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+
+.kd-badge-danger,
+.pos-badge-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+
+.kd-badge-info,
+.pos-badge-info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+
+/* =========================================================
+   DISABLED STATE
+   ========================================================= */
+
+button:disabled,
+[aria-disabled="true"] {
+  pointer-events: none;
+}
+
+
+/*
+  If a disabled dark button is shown,
+  keep its label visible.
+*/
+
+button.bg-slate-950:disabled,
+button.bg-slate-900:disabled {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
 }
