@@ -1,0 +1,21 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { PaymentMode } from "@/generated/prisma/client";
+import { processInvoiceReturnAction } from "@/features/returns/actions";
+import { prisma } from "@/lib/prisma";
+import { getAccessScope, Permission, requirePermission } from "@/lib/rbac";
+
+const money = (v: unknown) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(v ?? 0));
+export default async function ReturnPage({ params }: { params: Promise<{ invoiceId: string }> }) {
+  const access = await getAccessScope(); const { invoiceId } = await params;
+  const invoice = await prisma.invoice.findFirst({ where: { id: invoiceId, ...(access.isSuperAdmin ? {} : { schoolId: { in: access.schoolIds } }) }, include: { school: true, items: { include: { saleReturnItems: true, productVariant: { include: { product: true } } } } } });
+  if (!invoice) notFound(); requirePermission(access, Permission.RETURN_INVOICE, invoice.schoolId);
+  return <div className="mx-auto max-w-5xl space-y-6"><div><Link href={`/invoices/${invoice.id}`} className="text-sm text-slate-500 underline">Back to invoice</Link><h1 className="mt-2 text-2xl font-semibold text-slate-950">Return / Exchange</h1><p className="mt-1 text-sm text-slate-500">{invoice.invoiceNo} · {invoice.school.name}. Returned items are restored to stock atomically.</p></div>
+    <form action={processInvoiceReturnAction} className="space-y-5"><input type="hidden" name="invoiceId" value={invoice.id}/>
+      <div className="rounded-2xl border bg-white p-5 shadow-sm"><div className="grid gap-4 md:grid-cols-2"><label className="text-sm font-medium">Action<select name="mode" className="mt-1 w-full rounded-lg border px-3 py-2"><option value="RETURN">Return & Refund</option><option value="EXCHANGE">Exchange Credit</option></select></label><label className="text-sm font-medium">Refund mode (used for returns)<select name="refundMode" className="mt-1 w-full rounded-lg border px-3 py-2">{Object.values(PaymentMode).map(m => <option key={m} value={m}>{m.replaceAll("_", " ")}</option>)}</select></label><label className="text-sm font-medium">Refund reference<input name="refundReference" placeholder="Optional reference" className="mt-1 w-full rounded-lg border px-3 py-2"/></label><label className="text-sm font-medium">Reason<input name="reason" placeholder="Reason for return / exchange" className="mt-1 w-full rounded-lg border px-3 py-2"/></label></div></div>
+      <div className="overflow-hidden rounded-2xl border bg-white shadow-sm"><table className="w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Item</th><th className="px-4 py-3">Sold</th><th className="px-4 py-3">Already returned</th><th className="px-4 py-3">Available</th><th className="px-4 py-3">Credit / unit</th><th className="px-4 py-3">Return qty</th></tr></thead><tbody className="divide-y">{invoice.items.map(item => { const returned = item.returnedQty; const available = item.quantity - returned; const gross = Number(invoice.totalAmount); const discountFactor = gross > 0 ? Math.max(0, (gross - Number(invoice.discountAmount)) / gross) : 1; return <tr key={item.id}><td className="px-4 py-3 font-medium">{item.productVariant.product.name}<div className="text-xs text-slate-500">{item.productVariant.sku || ""}</div></td><td className="px-4 py-3">{item.quantity}</td><td className="px-4 py-3">{returned}</td><td className="px-4 py-3">{available}</td><td className="px-4 py-3">{money((Number(item.lineTotal) / item.quantity) * discountFactor)}</td><td className="px-4 py-3"><input name={`returnQty_${item.id}`} type="number" min={0} max={available} defaultValue={0} disabled={available <= 0} className="w-24 rounded-lg border px-3 py-2"/></td></tr>; })}</tbody></table></div>
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><b>Exchange:</b> processing an exchange creates a one-time exchange credit reference. Enter that reference in the next POS bill; the replacement bill must be at least the value of the credit.</div>
+      <button className="rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white">Process Return / Exchange</button>
+    </form>
+  </div>;
+}

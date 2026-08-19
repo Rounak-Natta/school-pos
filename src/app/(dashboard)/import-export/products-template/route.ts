@@ -1,5 +1,11 @@
 import { createProductsTemplateBuffer } from "@/features/import-export/excel-export";
-import { getCurrentUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+import {
+  getAccessScope,
+  getSchoolIdsForPermission,
+  hasPermission,
+  Permission,
+} from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -13,22 +19,32 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 }
 
 export async function GET(): Promise<Response> {
-  const user = await getCurrentUser();
+  const access = await getAccessScope();
 
-  if (!user) {
-    return new Response("Unauthorized", {
-      status: 401,
-    });
+  if (!hasPermission(access, Permission.IMPORT_EXPORT)) {
+    return new Response("Forbidden", { status: 403 });
   }
 
-  const buffer = await createProductsTemplateBuffer();
-  const body = toArrayBuffer(buffer);
+  const allowedSchoolIds = access.isSuperAdmin
+    ? undefined
+    : getSchoolIdsForPermission(access, Permission.IMPORT_EXPORT);
 
-  return new Response(body, {
+  const schools = await prisma.school.findMany({
+    where: {
+      isActive: true,
+      ...(access.isSuperAdmin ? {} : { id: { in: allowedSchoolIds ?? [] } }),
+    },
+    select: { name: true, code: true },
+    orderBy: { name: "asc" },
+  });
+
+  const buffer = await createProductsTemplateBuffer(schools);
+
+  return new Response(toArrayBuffer(buffer), {
     headers: {
       "Content-Type": EXCEL_CONTENT_TYPE,
       "Content-Disposition":
-        'attachment; filename="products-import-template.xlsx"',
+        'attachment; filename="products-multi-school-import-template.xlsx"',
     },
   });
 }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { StockMovementType } from "@/generated/prisma/client";
+import { writeAuditLog } from "@/features/audit/audit-service";
 import { productFormSchema } from "@/features/products/schemas";
 import { prisma } from "@/lib/prisma";
 import {
@@ -83,6 +84,8 @@ function readProductFormData(formData: FormData) {
     costPrice: clean(formData.get("costPrice")) || undefined,
     mrp: clean(formData.get("mrp")) || undefined,
     wholesaleRate: clean(formData.get("wholesaleRate")) || undefined,
+    gstRate: clean(formData.get("gstRate")) || "0",
+    hsnCode: clean(formData.get("hsnCode")),
 
     quantity: clean(formData.get("quantity")) || "0",
     reorderLevel: clean(formData.get("reorderLevel")) || "0",
@@ -165,6 +168,8 @@ export async function createProductAction(formData: FormData) {
         costPrice: toDecimalString(input.costPrice),
         mrp: toDecimalString(input.mrp),
         wholesaleRate: toDecimalString(input.wholesaleRate),
+        gstRate: input.gstRate.toFixed(2),
+        hsnCode: emptyToNull(input.hsnCode),
 
         isActive: true,
       },
@@ -184,6 +189,8 @@ export async function createProductAction(formData: FormData) {
         costPrice: toDecimalString(input.costPrice),
         mrp: toDecimalString(input.mrp),
         wholesaleRate: toDecimalString(input.wholesaleRate),
+        gstRate: input.gstRate.toFixed(2),
+        hsnCode: emptyToNull(input.hsnCode),
 
         isActive: true,
       },
@@ -250,11 +257,27 @@ export async function createProductAction(formData: FormData) {
         },
       });
     }
+
+    await writeAuditLog(tx, {
+      userId: access.userId,
+      schoolId: product.schoolId,
+      action: existingVariant ? "UPDATE" : "CREATE",
+      entity: "PRODUCT",
+      entityId: product.id,
+      newData: {
+        name: input.name,
+        sku: input.sku || null,
+        salePrice: input.salePrice,
+        gstRate: input.gstRate,
+        quantity: afterQty,
+      },
+    });
   });
 
   revalidatePath("/products");
   revalidatePath("/inventory");
   revalidatePath("/inventory/movements");
+  revalidatePath("/audit-logs");
 
   redirect("/products");
 }
@@ -390,6 +413,8 @@ export async function updateProductAction(
             costPrice: toDecimalString(input.costPrice),
             mrp: toDecimalString(input.mrp),
             wholesaleRate: toDecimalString(input.wholesaleRate),
+            gstRate: input.gstRate.toFixed(2),
+            hsnCode: emptyToNull(input.hsnCode),
 
             isActive: true,
           },
@@ -414,6 +439,8 @@ export async function updateProductAction(
             costPrice: toDecimalString(input.costPrice),
             mrp: toDecimalString(input.mrp),
             wholesaleRate: toDecimalString(input.wholesaleRate),
+            gstRate: input.gstRate.toFixed(2),
+            hsnCode: emptyToNull(input.hsnCode),
 
             isActive: true,
           },
@@ -475,11 +502,27 @@ export async function updateProductAction(
         },
       });
     }
+
+    await writeAuditLog(tx, {
+      userId: access.userId,
+      schoolId: product.schoolId,
+      action: "UPDATE",
+      entity: "PRODUCT",
+      entityId: product.id,
+      newData: {
+        name: input.name,
+        sku: input.sku || null,
+        salePrice: input.salePrice,
+        gstRate: input.gstRate,
+        quantity: afterQty,
+      },
+    });
   });
 
   revalidatePath("/products");
   revalidatePath("/inventory");
   revalidatePath("/inventory/movements");
+  revalidatePath("/audit-logs");
 
   redirect("/products");
 }
@@ -527,9 +570,20 @@ export async function deleteProductAction(productId: string) {
         },
       },
     });
+
+    await writeAuditLog(tx, {
+      userId: access.userId,
+      schoolId: product.schoolId,
+      action: "DELETE",
+      entity: "PRODUCT",
+      entityId: product.id,
+      oldData: { isActive: true, deletedAt: null },
+      newData: { isActive: false },
+    });
   });
 
   revalidatePath("/products");
   revalidatePath("/inventory");
   revalidatePath("/inventory/movements");
+  revalidatePath("/audit-logs");
 }

@@ -1,13 +1,14 @@
 import Link from "next/link";
 
-import { PaymentMode, RoleName, type Prisma } from "@/generated/prisma/client";
+import { PaymentMode, type Prisma } from "@/generated/prisma/client";
 import {
   PosBillingForm,
   type PosProductOption,
   type PosSchoolOption,
 } from "@/features/pos/pos-billing-form";
-import { requireUser } from "@/lib/auth";
+import type { StudentOption } from "@/features/students/types";
 import { prisma } from "@/lib/prisma";
+import { getAccessScope, hasPermission, Permission } from "@/lib/rbac";
 
 // ==============================
 // Helpers (pure functions)
@@ -73,37 +74,25 @@ function buildSearchText(stock: StockRow): string {
 // ==============================
 
 export default async function PosPage() {
-  const sessionUser = await requireUser();
+  const access = await getAccessScope();
 
-  // 1. Fetch user's active school roles
-  const dbUser = await prisma.user.findUnique({
-    where: { id: sessionUser.id },
-    select: {
-      schoolRoles: {
-        where: {
-          isActive: true,
-          school: { isActive: true },
-        },
-        select: { schoolId: true, role: true },
-      },
-    },
-  });
+  if (!hasPermission(access, Permission.POS_BILLING)) {
+    return (
+      <div className="mx-auto max-w-3xl rounded-2xl border bg-white p-6 shadow-sm">
+        <h1 className="text-xl font-semibold text-slate-900">POS Billing</h1>
+        <p className="mt-2 text-sm text-slate-500">
+          You do not have permission to create POS bills.
+        </p>
+      </div>
+    );
+  }
 
-  const activeRoles =
-    dbUser?.schoolRoles.length
-      ? dbUser.schoolRoles
-      : sessionUser.roles.map((role) => ({
-          schoolId: role.schoolId,
-          role: role.role,
-        }));
-
-  const isSuperAdmin = activeRoles.some(
-    (role) => role.role === RoleName.SUPER_ADMIN,
-  );
-
-  const accessibleSchoolIds = Array.from(
-    new Set(activeRoles.map((role) => role.schoolId).filter(Boolean)),
-  );
+  const isSuperAdmin = access.isSuperAdmin;
+  const accessibleSchoolIds = isSuperAdmin
+    ? []
+    : access.schoolIds.filter((schoolId) =>
+        hasPermission(access, Permission.POS_BILLING, schoolId),
+      );
 
   // 2. Build where clauses
   const schoolWhere: Prisma.SchoolWhereInput = { isActive: true };
@@ -124,7 +113,7 @@ export default async function PosPage() {
   }
 
   // 3. Fetch data in parallel
-  const [schools, stocks] = await Promise.all([
+  const [schools, stocks, studentRows] = await Promise.all([
     prisma.school.findMany({
       where: schoolWhere,
       orderBy: { name: "asc" },
@@ -141,6 +130,16 @@ export default async function PosPage() {
         { productVariant: { className: "asc" } },
         { productVariant: { size: "asc" } },
       ],
+    }),
+    prisma.student.findMany({
+      where: {
+        isActive: true,
+        deletedAt: null,
+        ...(isSuperAdmin ? {} : { schoolId: { in: accessibleSchoolIds } }),
+      },
+      include: { school: { select: { name: true } } },
+      orderBy: [{ name: "asc" }],
+      take: 5000,
     }),
   ]);
 
@@ -178,10 +177,30 @@ export default async function PosPage() {
         color: cleanText(variant.color),
 
         salePrice: Number(variant.salePrice),
+        gstRate: Number(variant.gstRate),
         stockQty: stock.quantity,
         searchText: buildSearchText(stock),
       };
     });
+
+  const studentOptions: StudentOption[] = studentRows
+    .filter((student) => activeSchoolIds.has(student.schoolId))
+    .map((student) => ({
+      id: student.id,
+      schoolId: student.schoolId,
+      schoolName: student.school.name,
+      name: cleanText(student.name),
+      className: cleanText(student.className),
+      sectionName: cleanText(student.sectionName),
+      admissionNo: cleanText(student.admissionNo),
+      rollNumber: cleanText(student.rollNumber),
+      phone: cleanText(student.parentPhone),
+      searchText: [student.name, student.className, student.sectionName, student.admissionNo, student.rollNumber, student.parentPhone, student.school.name]
+        .map(cleanText)
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase(),
+    }));
 
   // 5. Fallback if no schools
   if (schoolOptions.length === 0) {
@@ -224,6 +243,7 @@ export default async function PosPage() {
       <PosBillingForm
         schools={schoolOptions}
         products={productOptions}
+        students={studentOptions}
         paymentModes={Object.values(PaymentMode)}
       />
     </div>

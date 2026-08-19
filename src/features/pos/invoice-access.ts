@@ -1,5 +1,6 @@
 import {
   getAccessScope,
+  getSchoolIdsForPermission,
   Permission,
   requirePermission,
 } from "@/lib/rbac";
@@ -9,5 +10,12 @@ export async function getInvoiceAccessScope() {
 
   requirePermission(access, Permission.VIEW_INVOICES);
 
-  return access;
+  if (access.isSuperAdmin) {
+    return access;
+  }
+
+  return {
+    ...access,
+    schoolIds: getSchoolIdsForPermission(access, Permission.VIEW_INVOICES),
+  };
 }

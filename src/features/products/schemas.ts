@@ -19,6 +19,8 @@ export const productFormSchema = z.object({
   costPrice: z.coerce.number().min(0).optional(),
   mrp: z.coerce.number().min(0).optional(),
   wholesaleRate: z.coerce.number().min(0).optional(),
+  gstRate: z.coerce.number().min(0).max(100).default(0),
+  hsnCode: z.string().trim().optional(),
 
   quantity: z.coerce.number().int().min(0, "Quantity cannot be negative"),
   reorderLevel: z.coerce.number().int().min(0).default(0),

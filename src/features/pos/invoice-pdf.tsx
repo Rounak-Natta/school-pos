@@ -1,12 +1,12 @@
-import type { Prisma } from "@/generated/prisma/client";
-
 import {
   Document,
   Page,
+  StyleSheet,
   Text,
   View,
-  StyleSheet,
 } from "@react-pdf/renderer";
+
+import type { Prisma } from "@/generated/prisma/client";
 
 export type InvoiceWithDetails = Prisma.InvoiceGetPayload<{
   include: {
@@ -14,11 +14,7 @@ export type InvoiceWithDetails = Prisma.InvoiceGetPayload<{
     payments: true;
     items: {
       include: {
-        productVariant: {
-          include: {
-            product: true;
-          };
-        };
+        productVariant: { include: { product: true } };
       };
     };
   };
@@ -29,318 +25,131 @@ type InvoicePayment = InvoiceWithDetails["payments"][number];
 
 const styles = StyleSheet.create({
   page: {
-    padding: 32,
-    fontSize: 10,
+    padding: 30,
+    fontSize: 9,
     fontFamily: "Helvetica",
     color: "#111827",
     backgroundColor: "#FFFFFF",
   },
-
   header: {
-    marginBottom: 22,
-    paddingBottom: 14,
+    flexDirection: "row",
+    justifyContent: "space-between",
     borderBottomWidth: 1,
     borderBottomColor: "#CBD5E1",
-  },
-
-  brandRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-
-  brandBlock: {
-    width: "65%",
-  },
-
-  brand: {
-    fontSize: 22,
-    fontWeight: 700,
-    color: "#0F172A",
-    marginBottom: 4,
-  },
-
-  subtitle: {
-    fontSize: 10,
-    color: "#64748B",
-  },
-
-  invoiceBadge: {
-    width: "30%",
-    textAlign: "right",
-  },
-
-  invoiceBadgeText: {
-    fontSize: 16,
-    fontWeight: 700,
-    color: "#0F172A",
-    marginBottom: 4,
-  },
-
-  invoiceStatus: {
-    fontSize: 9,
-    color: "#475569",
-  },
-
-  topRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+    paddingBottom: 12,
     marginBottom: 18,
   },
-
-  box: {
+  brand: { fontSize: 20, fontWeight: 700, marginBottom: 4 },
+  muted: { color: "#64748B" },
+  invoiceTitle: { fontSize: 15, fontWeight: 700, textAlign: "right" },
+  row: { flexDirection: "row", justifyContent: "space-between" },
+  infoBox: {
     width: "48%",
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: "#F8FAFC",
+    borderRadius: 6,
+    padding: 10,
   },
-
-  boxTitle: {
-    fontSize: 11,
-    fontWeight: 700,
-    color: "#0F172A",
-    marginBottom: 10,
-  },
-
-  infoRow: {
-    marginBottom: 7,
-  },
-
-  label: {
-    fontSize: 8,
-    color: "#64748B",
-    marginBottom: 2,
-  },
-
-  value: {
-    fontSize: 10,
-    color: "#0F172A",
-  },
-
+  infoTitle: { fontSize: 10, fontWeight: 700, marginBottom: 8 },
+  infoLine: { marginBottom: 5 },
+  label: { fontSize: 7, color: "#64748B", marginBottom: 1 },
+  value: { fontSize: 9 },
   table: {
+    marginTop: 18,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    borderRadius: 8,
-    marginTop: 4,
+    borderRadius: 6,
   },
-
   tableHeader: {
     flexDirection: "row",
     backgroundColor: "#F1F5F9",
+    paddingVertical: 7,
+    paddingHorizontal: 6,
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
-    paddingVertical: 8,
-    paddingHorizontal: 8,
   },
-
-  tableHeaderText: {
-    fontSize: 8,
-    fontWeight: 700,
-    color: "#475569",
-  },
-
   tableRow: {
     flexDirection: "row",
+    paddingVertical: 7,
+    paddingHorizontal: 6,
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
-    paddingVertical: 8,
-    paddingHorizontal: 8,
   },
-
-  colItem: {
-    width: "43%",
-  },
-
-  colQty: {
-    width: "12%",
-    textAlign: "center",
-  },
-
-  colRate: {
-    width: "15%",
-    textAlign: "right",
-  },
-
-  colDiscount: {
-    width: "15%",
-    textAlign: "right",
-  },
-
-  colTotal: {
-    width: "15%",
-    textAlign: "right",
-  },
-
-  itemName: {
-    fontSize: 10,
-    color: "#0F172A",
-    marginBottom: 2,
-  },
-
-  itemMeta: {
-    fontSize: 8,
-    color: "#64748B",
-  },
-
-  totalsWrap: {
+  tableHeadText: { fontSize: 7, fontWeight: 700, color: "#475569" },
+  colItem: { width: "38%" },
+  colQty: { width: "8%", textAlign: "center" },
+  colRate: { width: "16%", textAlign: "right" },
+  colTaxable: { width: "16%", textAlign: "right" },
+  colGst: { width: "12%", textAlign: "right" },
+  colTotal: { width: "10%", textAlign: "right" },
+  itemName: { fontSize: 9, marginBottom: 2 },
+  itemMeta: { fontSize: 7, color: "#64748B" },
+  summaryWrap: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 20,
+    marginTop: 18,
   },
-
-  noteBox: {
+  note: {
     width: "50%",
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    borderRadius: 8,
-    padding: 10,
-    minHeight: 80,
+    borderRadius: 6,
+    padding: 9,
+    minHeight: 78,
   },
-
-  noteTitle: {
-    fontSize: 10,
-    fontWeight: 700,
-    color: "#0F172A",
-    marginBottom: 6,
-  },
-
-  noteText: {
-    fontSize: 9,
-    color: "#475569",
-    lineHeight: 1.4,
-  },
-
-  totals: {
-    width: "40%",
-  },
-
-  totalRow: {
+  summary: { width: "42%" },
+  summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 7,
+    marginBottom: 6,
   },
-
-  totalLabel: {
-    fontSize: 10,
-    color: "#475569",
-  },
-
-  totalValue: {
-    fontSize: 10,
-    color: "#0F172A",
-  },
-
-  grandTotal: {
+  grand: {
     flexDirection: "row",
     justifyContent: "space-between",
     borderTopWidth: 1,
     borderTopColor: "#0F172A",
-    paddingTop: 8,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-
-  grandTotalLabel: {
-    fontSize: 13,
+    paddingTop: 7,
+    marginTop: 2,
+    marginBottom: 7,
+    fontSize: 11,
     fontWeight: 700,
-    color: "#0F172A",
   },
-
-  grandTotalValue: {
-    fontSize: 13,
-    fontWeight: 700,
-    color: "#0F172A",
-  },
-
-  paymentTable: {
-    marginTop: 20,
+  payment: {
+    marginTop: 18,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    borderRadius: 8,
+    borderRadius: 6,
   },
-
   paymentHeader: {
     flexDirection: "row",
     backgroundColor: "#F1F5F9",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
-    paddingVertical: 7,
-    paddingHorizontal: 8,
+    padding: 6,
   },
-
   paymentRow: {
     flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
-    paddingVertical: 7,
-    paddingHorizontal: 8,
-  },
-
-  payDate: {
-    width: "30%",
-  },
-
-  payMode: {
-    width: "25%",
-  },
-
-  payRef: {
-    width: "25%",
-  },
-
-  payAmount: {
-    width: "20%",
-    textAlign: "right",
-  },
-
-  footer: {
-    marginTop: 34,
-    paddingTop: 12,
+    padding: 6,
     borderTopWidth: 1,
     borderTopColor: "#E2E8F0",
+  },
+  payDate: { width: "30%" },
+  payMode: { width: "25%" },
+  payRef: { width: "25%" },
+  payAmount: { width: "20%", textAlign: "right" },
+  footer: {
+    marginTop: 28,
+    borderTopWidth: 1,
+    borderTopColor: "#E2E8F0",
+    paddingTop: 10,
     textAlign: "center",
-    fontSize: 8,
+    fontSize: 7,
     color: "#64748B",
   },
 });
 
 function toNumber(value: unknown) {
-  if (value === null || typeof value === "undefined") {
-    return 0;
-  }
-
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : 0;
-  }
-
-  if (typeof value === "bigint") {
-    return Number(value);
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  if (typeof value === "object") {
-    const decimalValue = value as {
-      toNumber?: () => number;
-      toString?: () => string;
-    };
-
-    if (typeof decimalValue.toNumber === "function") {
-      return decimalValue.toNumber();
-    }
-
-    if (typeof decimalValue.toString === "function") {
-      const parsed = Number(decimalValue.toString());
-      return Number.isFinite(parsed) ? parsed : 0;
-    }
-  }
-
-  return 0;
+  if (value === null || value === undefined) return 0;
+  const parsed = Number(typeof value === "object" ? String(value) : value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function money(value: unknown) {
@@ -351,238 +160,130 @@ function formatDate(value: Date) {
   return new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Asia/Kolkata",
   }).format(new Date(value));
 }
 
-function formatPaymentMode(mode: string) {
-  return mode.split("_").join(" ");
-}
-
 function getPaymentModes(payments: InvoicePayment[]) {
-  if (payments.length === 0) {
-    return "-";
-  }
-
-  return payments.map((payment) => formatPaymentMode(payment.mode)).join(", ");
-}
-
-function getCustomerName(invoice: InvoiceWithDetails) {
-  return invoice.customerName || "Walk-in Customer";
-}
-
-function getCustomerPhone(invoice: InvoiceWithDetails) {
-  return invoice.customerPhone || "-";
-}
-
-function getCustomerClass(invoice: InvoiceWithDetails) {
-  const classParts = [
-    invoice.customerClassName,
-    invoice.customerSectionName,
-  ].filter(Boolean);
-
-  if (classParts.length === 0) {
-    return "-";
-  }
-
-  return classParts.join(" - ");
-}
-
-function getItemName(item: InvoiceItem) {
-  const productName = item.productVariant.product.name;
-
-  const variantParts = [
-    item.productVariant.className,
-    item.productVariant.sectionName,
-    item.productVariant.size,
-    item.productVariant.color,
-  ].filter(Boolean);
-
-  if (variantParts.length === 0) {
-    return productName;
-  }
-
-  return `${productName} - ${variantParts.join(", ")}`;
+  return payments.length
+    ? payments.map((payment) => payment.mode.replaceAll("_", " ")).join(", ")
+    : "-";
 }
 
 function getItemMeta(item: InvoiceItem) {
-  const metaParts = [
-    item.productVariant.sku ? `SKU: ${item.productVariant.sku}` : null,
-    item.productVariant.barcode
-      ? `Barcode: ${item.productVariant.barcode}`
-      : null,
-    item.productVariant.unit ? `Unit: ${item.productVariant.unit}` : null,
-  ].filter(Boolean);
-
-  return metaParts.join(" | ");
+  const variant = item.productVariant;
+  return [
+    variant.sku ? `SKU: ${variant.sku}` : "",
+    variant.hsnCode ? `HSN: ${variant.hsnCode}` : "",
+    variant.className ? `Class: ${variant.className}` : "",
+    variant.sectionName ? `Section: ${variant.sectionName}` : "",
+    variant.size ? `Size: ${variant.size}` : "",
+    variant.color ? `Color: ${variant.color}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
 }
 
 export function createInvoicePdfDocument(invoice: InvoiceWithDetails) {
+  const classSection = [
+    invoice.customerClassName ? `Class ${invoice.customerClassName}` : "",
+    invoice.customerSectionName ? `Section ${invoice.customerSectionName}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <View style={styles.brandRow}>
-            <View style={styles.brandBlock}>
-              <Text style={styles.brand}>School Billing POS</Text>
-              <Text style={styles.subtitle}>
-                Official Invoice / Payment Receipt
-              </Text>
-            </View>
-
-            <View style={styles.invoiceBadge}>
-              <Text style={styles.invoiceBadgeText}>INVOICE</Text>
-              <Text style={styles.invoiceStatus}>{invoice.status}</Text>
-            </View>
+          <View>
+            <Text style={styles.brand}>{invoice.school.name}</Text>
+            <Text style={styles.muted}>School Billing POS · Tax Invoice / Receipt</Text>
+            {invoice.school.address ? <Text style={styles.muted}>{invoice.school.address}</Text> : null}
+          </View>
+          <View>
+            <Text style={styles.invoiceTitle}>INVOICE</Text>
+            <Text style={[styles.muted, { textAlign: "right", marginTop: 3 }]}>{invoice.status}</Text>
           </View>
         </View>
 
-        <View style={styles.topRow}>
-          <View style={styles.box}>
-            <Text style={styles.boxTitle}>Invoice Details</Text>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>Invoice No.</Text>
-              <Text style={styles.value}>{invoice.invoiceNo}</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>Invoice Date</Text>
-              <Text style={styles.value}>{formatDate(invoice.createdAt)}</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>Payment Mode</Text>
-              <Text style={styles.value}>{getPaymentModes(invoice.payments)}</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>School</Text>
-              <Text style={styles.value}>{invoice.school.name}</Text>
-            </View>
+        <View style={styles.row}>
+          <View style={styles.infoBox}>
+            <Text style={styles.infoTitle}>Invoice Details</Text>
+            <View style={styles.infoLine}><Text style={styles.label}>Invoice No.</Text><Text style={styles.value}>{invoice.invoiceNo}</Text></View>
+            <View style={styles.infoLine}><Text style={styles.label}>Date</Text><Text style={styles.value}>{formatDate(invoice.createdAt)}</Text></View>
+            <View style={styles.infoLine}><Text style={styles.label}>Payment</Text><Text style={styles.value}>{getPaymentModes(invoice.payments)}</Text></View>
+            <View style={styles.infoLine}><Text style={styles.label}>School Code</Text><Text style={styles.value}>{invoice.school.code}</Text></View>
           </View>
 
-          <View style={styles.box}>
-            <Text style={styles.boxTitle}>Customer Details</Text>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>Customer Name</Text>
-              <Text style={styles.value}>{getCustomerName(invoice)}</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>Phone</Text>
-              <Text style={styles.value}>{getCustomerPhone(invoice)}</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>Class / Section</Text>
-              <Text style={styles.value}>{getCustomerClass(invoice)}</Text>
-            </View>
+          <View style={styles.infoBox}>
+            <Text style={styles.infoTitle}>Customer / Student</Text>
+            <View style={styles.infoLine}><Text style={styles.label}>Name</Text><Text style={styles.value}>{invoice.customerName || "-"}</Text></View>
+            <View style={styles.infoLine}><Text style={styles.label}>Contact Number</Text><Text style={styles.value}>{invoice.customerPhone || "-"}</Text></View>
+            <View style={styles.infoLine}><Text style={styles.label}>Class / Section</Text><Text style={styles.value}>{classSection || "-"}</Text></View>
           </View>
         </View>
 
         <View style={styles.table}>
           <View style={styles.tableHeader}>
-            <Text style={[styles.colItem, styles.tableHeaderText]}>ITEM</Text>
-            <Text style={[styles.colQty, styles.tableHeaderText]}>QTY</Text>
-            <Text style={[styles.colRate, styles.tableHeaderText]}>RATE</Text>
-            <Text style={[styles.colDiscount, styles.tableHeaderText]}>
-              DISCOUNT
-            </Text>
-            <Text style={[styles.colTotal, styles.tableHeaderText]}>TOTAL</Text>
+            <Text style={[styles.colItem, styles.tableHeadText]}>ITEM</Text>
+            <Text style={[styles.colQty, styles.tableHeadText]}>QTY</Text>
+            <Text style={[styles.colRate, styles.tableHeadText]}>BASE RATE</Text>
+            <Text style={[styles.colTaxable, styles.tableHeadText]}>TAXABLE</Text>
+            <Text style={[styles.colGst, styles.tableHeadText]}>GST</Text>
+            <Text style={[styles.colTotal, styles.tableHeadText]}>TOTAL</Text>
           </View>
 
-          {invoice.items.map((item: InvoiceItem) => {
-            const itemMeta = getItemMeta(item);
-
+          {invoice.items.map((item) => {
+            const meta = getItemMeta(item);
             return (
               <View key={item.id} style={styles.tableRow}>
                 <View style={styles.colItem}>
-                  <Text style={styles.itemName}>{getItemName(item)}</Text>
-
-                  {itemMeta ? (
-                    <Text style={styles.itemMeta}>{itemMeta}</Text>
-                  ) : null}
+                  <Text style={styles.itemName}>{item.productVariant.product.name}</Text>
+                  {meta ? <Text style={styles.itemMeta}>{meta}</Text> : null}
                 </View>
-
                 <Text style={styles.colQty}>{item.quantity}</Text>
                 <Text style={styles.colRate}>{money(item.unitPrice)}</Text>
-                <Text style={styles.colDiscount}>
-                  {money(item.discountAmount)}
-                </Text>
+                <Text style={styles.colTaxable}>{money(item.taxableAmount)}</Text>
+                <Text style={styles.colGst}>{money(item.gstAmount)} ({toNumber(item.gstRate).toFixed(2)}%)</Text>
                 <Text style={styles.colTotal}>{money(item.lineTotal)}</Text>
               </View>
             );
           })}
         </View>
 
-        <View style={styles.totalsWrap}>
-          <View style={styles.noteBox}>
-            <Text style={styles.noteTitle}>Note</Text>
-            <Text style={styles.noteText}>
-              {invoice.note || "No additional note."}
-            </Text>
+        <View style={styles.summaryWrap}>
+          <View style={styles.note}>
+            <Text style={styles.infoTitle}>Note</Text>
+            <Text style={styles.muted}>{invoice.note || "No additional note."}</Text>
           </View>
-
-          <View style={styles.totals}>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total Amount</Text>
-              <Text style={styles.totalValue}>{money(invoice.totalAmount)}</Text>
-            </View>
-
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Discount</Text>
-              <Text style={styles.totalValue}>
-                {money(invoice.discountAmount)}
-              </Text>
-            </View>
-
-            <View style={styles.grandTotal}>
-              <Text style={styles.grandTotalLabel}>Payable</Text>
-              <Text style={styles.grandTotalValue}>
-                {money(invoice.payableAmount)}
-              </Text>
-            </View>
-
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Paid</Text>
-              <Text style={styles.totalValue}>{money(invoice.paidAmount)}</Text>
-            </View>
-
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Balance</Text>
-              <Text style={styles.totalValue}>
-                {money(invoice.balanceAmount)}
-              </Text>
-            </View>
+          <View style={styles.summary}>
+            <View style={styles.summaryRow}><Text>Taxable subtotal</Text><Text>{money(invoice.subtotalAmount)}</Text></View>
+            <View style={styles.summaryRow}><Text>GST amount</Text><Text>{money(invoice.gstAmount)}</Text></View>
+            <View style={styles.summaryRow}><Text>Gross total</Text><Text>{money(invoice.totalAmount)}</Text></View>
+            <View style={styles.summaryRow}><Text>Discount</Text><Text>- {money(invoice.discountAmount)}</Text></View>
+            {toNumber(invoice.exchangeCreditAmount) > 0 ? (
+              <View style={styles.summaryRow}><Text>Exchange credit</Text><Text>- {money(invoice.exchangeCreditAmount)}</Text></View>
+            ) : null}
+            <View style={styles.grand}><Text>Payable</Text><Text>{money(invoice.payableAmount)}</Text></View>
+            <View style={styles.summaryRow}><Text>Paid</Text><Text>{money(invoice.paidAmount)}</Text></View>
+            <View style={styles.summaryRow}><Text>Balance</Text><Text>{money(invoice.balanceAmount)}</Text></View>
           </View>
         </View>
 
-        {invoice.payments.length > 0 ? (
-          <View style={styles.paymentTable}>
+        {invoice.payments.length ? (
+          <View style={styles.payment}>
             <View style={styles.paymentHeader}>
-              <Text style={[styles.payDate, styles.tableHeaderText]}>DATE</Text>
-              <Text style={[styles.payMode, styles.tableHeaderText]}>MODE</Text>
-              <Text style={[styles.payRef, styles.tableHeaderText]}>
-                REFERENCE
-              </Text>
-              <Text style={[styles.payAmount, styles.tableHeaderText]}>
-                AMOUNT
-              </Text>
+              <Text style={[styles.payDate, styles.tableHeadText]}>DATE</Text>
+              <Text style={[styles.payMode, styles.tableHeadText]}>MODE</Text>
+              <Text style={[styles.payRef, styles.tableHeadText]}>REFERENCE</Text>
+              <Text style={[styles.payAmount, styles.tableHeadText]}>AMOUNT</Text>
             </View>
-
-            {invoice.payments.map((payment: InvoicePayment) => (
+            {invoice.payments.map((payment) => (
               <View key={payment.id} style={styles.paymentRow}>
                 <Text style={styles.payDate}>{formatDate(payment.paidAt)}</Text>
-
-                <Text style={styles.payMode}>
-                  {formatPaymentMode(payment.mode)}
-                </Text>
-
-                <Text style={styles.payRef}>
-                  {payment.transactionRef || "-"}
-                </Text>
-
+                <Text style={styles.payMode}>{payment.mode.replaceAll("_", " ")}</Text>
+                <Text style={styles.payRef}>{payment.transactionRef || "-"}</Text>
                 <Text style={styles.payAmount}>{money(payment.amount)}</Text>
               </View>
             ))}
@@ -590,7 +291,7 @@ export function createInvoicePdfDocument(invoice: InvoiceWithDetails) {
         ) : null}
 
         <Text style={styles.footer}>
-          This is a system generated invoice. No signature is required.
+          This is a system generated invoice. GST is calculated from the product-level GST rate configured at the time of billing.
         </Text>
       </Page>
     </Document>

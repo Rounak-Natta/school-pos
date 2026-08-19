@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/session";
+import { getAuthenticatedUser } from "@/lib/auth";
 import { LoginForm } from "./_components/login-form";
 
 export default async function LoginPage() {
-  const user = await getCurrentUser();
+  // Do not trust a signed JWT by itself here. The database may have been
+  // reset/reseeded, leaving the browser with a valid token for an old user id.
+  const user = await getAuthenticatedUser();
 
   if (user) {
     redirect("/dashboard");

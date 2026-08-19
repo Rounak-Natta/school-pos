@@ -158,7 +158,7 @@ export default async function InventoryPage({
     query,
   });
 
-  const [schools, inventory] = await prisma.$transaction([
+  const [schools, inventory] = await Promise.all([
     prisma.school.findMany({
       where: schoolWhere,
       orderBy: {

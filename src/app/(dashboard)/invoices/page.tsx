@@ -294,7 +294,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
     ];
   }
 
-  const [schools, totalCount, invoices] = await prisma.$transaction([
+  const [schools, totalCount, invoices] = await Promise.all([
     prisma.school.findMany({
       where: schoolWhere,
       select: {

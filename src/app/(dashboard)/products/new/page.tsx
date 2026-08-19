@@ -312,6 +312,16 @@ export default async function NewProductPage() {
             </div>
 
             <div className="space-y-1">
+              <label className="text-sm font-medium text-slate-700">GST Rate (%)</label>
+              <input name="gstRate" type="number" min="0" max="100" step="0.01" defaultValue="0" required className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-slate-700">HSN Code</label>
+              <input name="hsnCode" placeholder="Optional" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+            </div>
+
+            <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700">
                 Opening / Current Stock
               </label>

@@ -244,7 +244,7 @@ export async function getSalesReport(input: {
   };
 
   const [schools, totalCount, totals, itemTotals, invoices] =
-    await prisma.$transaction([
+    await Promise.all([
       getReportSchools(access),
       prisma.invoice.count({ where: invoiceWhere }),
       prisma.invoice.aggregate({
@@ -444,7 +444,7 @@ export async function getPaymentsReport(input: {
   };
 
   const [schools, totalCount, totals, modeGroups, payments] =
-    await prisma.$transaction([
+    await Promise.all([
       getReportSchools(access),
       prisma.payment.count({ where: paymentWhere }),
       prisma.payment.aggregate({
@@ -618,7 +618,7 @@ export async function getProductSalesReport(input: {
     },
   };
 
-  const [schools, totals, allGroups, groups] = await prisma.$transaction([
+  const [schools, totals, allGroups, groups] = await Promise.all([
     getReportSchools(access),
     prisma.invoiceItem.aggregate({
       where: itemWhere,
@@ -818,7 +818,7 @@ export async function getStockReport(input: {
   };
 
   const [schools, totalCount, totalQty, lowCount, outCount, rows] =
-    await prisma.$transaction([
+    await Promise.all([
       getReportSchools(access),
       prisma.inventoryStock.count({
         where: stockWhere,
@@ -924,7 +924,7 @@ export async function getCashierReport(input: {
     q: filters.q,
   });
 
-  const [schools, totals, allGroups, groups] = await prisma.$transaction([
+  const [schools, totals, allGroups, groups] = await Promise.all([
     getReportSchools(access),
     prisma.invoice.aggregate({
       where: invoiceWhere,
@@ -1034,7 +1034,7 @@ export async function getSchoolReport(input: {
     q: filters.q,
   });
 
-  const [schools, totals, allGroups, groups] = await prisma.$transaction([
+  const [schools, totals, allGroups, groups] = await Promise.all([
     getReportSchools(access),
     prisma.invoice.aggregate({
       where: invoiceWhere,

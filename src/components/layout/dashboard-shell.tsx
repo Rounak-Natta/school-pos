@@ -18,6 +18,7 @@ type DashboardShellProps = {
   children: ReactNode;
   userEmail: string;
   permissions: string[];
+  unreadNotificationCount: number;
   logoutAction: () => Promise<void>;
 };
 
@@ -26,6 +27,13 @@ const navItems: NavItem[] = [
     label: "Dashboard",
     href: "/dashboard",
     icon: "⌂",
+    group: "Business",
+    permission: "VIEW_DASHBOARD",
+  },
+  {
+    label: "Alerts",
+    href: "/notifications",
+    icon: "!",
     group: "Business",
     permission: "VIEW_DASHBOARD",
   },
@@ -241,6 +249,7 @@ export function DashboardShell({
   children,
   userEmail,
   permissions,
+  unreadNotificationCount,
   logoutAction,
 }: DashboardShellProps) {
   const pathname = usePathname();
@@ -304,6 +313,19 @@ export function DashboardShell({
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <Link
+              href="/notifications"
+              className="relative grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-700 transition hover:bg-slate-50"
+              aria-label={`Notifications${unreadNotificationCount ? ` (${unreadNotificationCount} unread)` : ""}`}
+            >
+              !
+              {unreadNotificationCount > 0 ? (
+                <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full bg-red-600 px-1.5 py-0.5 text-center text-[10px] font-bold leading-4 text-white">
+                  {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                </span>
+              ) : null}
+            </Link>
+
             {canCreateBill ? (
               <Link
                 href="/pos"

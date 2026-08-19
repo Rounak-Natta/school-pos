@@ -71,6 +71,20 @@ enum ImportStatus {
   FAILED
 }
 
+enum ReturnMode {
+  RETURN
+  EXCHANGE
+}
+
+enum NotificationType {
+  INFO
+  LOW_STOCK
+  TRANSFER
+  RETURN
+  INVOICE
+  SYSTEM
+}
+
 model School {
   id            String   @id @default(cuid())
   name          String
@@ -93,6 +107,9 @@ model School {
   invoices        Invoice[]
   excelImports    ExcelImport[]
   auditLogs       AuditLog[]
+  invoiceSequences SchoolInvoiceSequence[]
+  saleReturns     SaleReturn[]
+  notifications   Notification[]
 
   @@index([name])
   @@map("schools")
@@ -120,6 +137,8 @@ model User {
   receivedPayments    Payment[]        @relation("PaymentReceivedBy")
   excelImports        ExcelImport[]    @relation("ExcelImportUploadedBy")
   auditLogs           AuditLog[]       @relation("AuditLogUser")
+  processedReturns    SaleReturn[]      @relation("SaleReturnProcessedBy")
+  notifications       Notification[]
 
   @@index([email])
   @@map("users")
@@ -148,6 +167,7 @@ model Student {
   id          String    @id @default(cuid())
   schoolId    String
   admissionNo String?
+  rollNumber  String?
   name        String
   className   String
   sectionName String?
@@ -167,6 +187,7 @@ model Student {
   @@index([schoolId, className])
   @@index([schoolId, className, sectionName])
   @@index([schoolId, name])
+  @@index([schoolId, rollNumber])
   @@map("students")
 }
 
@@ -208,6 +229,8 @@ model ProductVariant {
   costPrice     Decimal? @db.Decimal(10, 2)
   mrp           Decimal? @db.Decimal(10, 2)
   wholesaleRate Decimal? @db.Decimal(10, 2)
+  gstRate       Decimal  @default(0) @db.Decimal(5, 2)
+  hsnCode       String?
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -218,6 +241,7 @@ model ProductVariant {
   stockMovements  StockMovement[]
   transferItems   TransferItem[]
   invoiceItems    InvoiceItem[]
+  saleReturnItems SaleReturnItem[]
 
   @@index([productId])
   @@index([sku])
@@ -341,11 +365,15 @@ model Invoice {
   customerClassName   String?
   customerSectionName String?
 
+  subtotalAmount Decimal @default(0) @db.Decimal(10, 2)
+  gstAmount      Decimal @default(0) @db.Decimal(10, 2)
   totalAmount    Decimal @default(0) @db.Decimal(10, 2)
   discountAmount Decimal @default(0) @db.Decimal(10, 2)
   payableAmount  Decimal @default(0) @db.Decimal(10, 2)
   paidAmount     Decimal @default(0) @db.Decimal(10, 2)
   balanceAmount  Decimal @default(0) @db.Decimal(10, 2)
+  exchangeCreditAmount Decimal @default(0) @db.Decimal(10, 2)
+  exchangeReturnId String? @unique
 
   note        String?
   billedById  String?
@@ -359,6 +387,8 @@ model Invoice {
 
   items    InvoiceItem[]
   payments Payment[]
+  saleReturns SaleReturn[] @relation("OriginalInvoiceReturns")
+  exchangeReturn SaleReturn? @relation("ExchangeCreditInvoice", fields: [exchangeReturnId], references: [id], onDelete: SetNull)
 
   @@index([schoolId])
   @@index([studentId])
@@ -372,12 +402,17 @@ model InvoiceItem {
   invoiceId        String
   productVariantId String
   quantity         Int
+  returnedQty      Int     @default(0)
   unitPrice        Decimal @db.Decimal(10, 2)
   discountAmount   Decimal @default(0) @db.Decimal(10, 2)
+  taxableAmount    Decimal @default(0) @db.Decimal(10, 2)
+  gstRate          Decimal @default(0) @db.Decimal(5, 2)
+  gstAmount        Decimal @default(0) @db.Decimal(10, 2)
   lineTotal        Decimal @db.Decimal(10, 2)
 
   invoice        Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+  saleReturnItems SaleReturnItem[]
 
   @@index([invoiceId])
   @@index([productVariantId])
@@ -447,4 +482,89 @@ model AuditLog {
   @@index([entity])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+
+model SchoolInvoiceSequence {
+  id            String   @id @default(cuid())
+  schoolId      String
+  financialYear String
+  lastNumber    Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, financialYear])
+  @@index([schoolId])
+  @@map("school_invoice_sequences")
+}
+
+model SaleReturn {
+  id                   String      @id @default(cuid())
+  returnNo             String      @unique
+  invoiceId            String
+  schoolId             String
+  mode                  ReturnMode
+  reason                String?
+  totalAmount           Decimal     @default(0) @db.Decimal(10, 2)
+  refundAmount          Decimal     @default(0) @db.Decimal(10, 2)
+  refundMode            PaymentMode?
+  refundReference       String?
+  exchangeCreditAmount  Decimal     @default(0) @db.Decimal(10, 2)
+  processedById         String?
+  createdAt             DateTime    @default(now())
+
+  invoice         Invoice  @relation("OriginalInvoiceReturns", fields: [invoiceId], references: [id], onDelete: Restrict)
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  processedBy     User?    @relation("SaleReturnProcessedBy", fields: [processedById], references: [id], onDelete: SetNull)
+  exchangeInvoice Invoice? @relation("ExchangeCreditInvoice")
+  items           SaleReturnItem[]
+
+  @@index([invoiceId])
+  @@index([schoolId])
+  @@index([mode])
+  @@index([createdAt])
+  @@map("sale_returns")
+}
+
+model SaleReturnItem {
+  id               String   @id @default(cuid())
+  saleReturnId     String
+  invoiceItemId    String
+  productVariantId String
+  quantity         Int
+  unitCredit       Decimal  @db.Decimal(10, 2)
+  gstAmount        Decimal  @default(0) @db.Decimal(10, 2)
+  lineCredit       Decimal  @db.Decimal(10, 2)
+  createdAt        DateTime @default(now())
+
+  saleReturn     SaleReturn     @relation(fields: [saleReturnId], references: [id], onDelete: Cascade)
+  invoiceItem    InvoiceItem    @relation(fields: [invoiceItemId], references: [id], onDelete: Restrict)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+
+  @@index([saleReturnId])
+  @@index([invoiceItemId])
+  @@index([productVariantId])
+  @@map("sale_return_items")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  schoolId  String?
+  type      NotificationType @default(INFO)
+  title     String
+  message   String
+  href      String?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School? @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([schoolId])
+  @@index([createdAt])
+  @@map("notifications")
 }

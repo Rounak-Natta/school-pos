@@ -44,12 +44,11 @@ export async function proxy(request: NextRequest) {
   const isLoginPage = pathname === "/login";
   const isProtectedPage = isProtectedRoute(pathname);
 
-  if (isLoginPage && token) {
-    const valid = await isValidSession(token);
-
-    if (valid) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    }
+  // Never redirect /login to /dashboard based only on JWT signature.
+  // A database reset can leave a signed cookie whose user id no longer exists.
+  // The login page performs the database-backed validation instead.
+  if (isLoginPage) {
+    return NextResponse.next();
   }
 
   if (!isProtectedPage) {

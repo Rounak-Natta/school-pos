@@ -3,7 +3,12 @@ import {
   type ProductExportRow,
 } from "@/features/import-export/excel-export";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/session";
+import {
+  getAccessScope,
+  getSchoolIdsForPermission,
+  hasPermission,
+  Permission,
+} from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -17,53 +22,45 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const user = await getCurrentUser();
-
-  if (!user) {
-    return new Response("Unauthorized", {
-      status: 401,
-    });
+  const access = await getAccessScope();
+  if (!hasPermission(access, Permission.IMPORT_EXPORT)) {
+    return new Response("Forbidden", { status: 403 });
   }
 
   const url = new URL(request.url);
-  const schoolId = url.searchParams.get("schoolId") || "";
+  const requestedSchoolId = url.searchParams.get("schoolId") || "";
+
+  if (
+    requestedSchoolId &&
+    !hasPermission(access, Permission.IMPORT_EXPORT, requestedSchoolId)
+  ) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  const allowedSchoolIds = access.isSuperAdmin
+    ? undefined
+    : getSchoolIdsForPermission(access, Permission.IMPORT_EXPORT);
+  const whereSchool = requestedSchoolId
+    ? { schoolId: requestedSchoolId }
+    : allowedSchoolIds
+      ? { schoolId: { in: allowedSchoolIds } }
+      : {};
 
   const inventory = await prisma.inventoryStock.findMany({
     where: {
-      ...(schoolId
-        ? {
-            schoolId,
-          }
-        : {}),
+      ...whereSchool,
       productVariant: {
         isActive: true,
-        product: {
-          deletedAt: null,
-          isActive: true,
-        },
+        product: { deletedAt: null, isActive: true },
       },
     },
     include: {
       school: true,
-      productVariant: {
-        include: {
-          product: true,
-        },
-      },
+      productVariant: { include: { product: true } },
     },
     orderBy: [
-      {
-        school: {
-          name: "asc",
-        },
-      },
-      {
-        productVariant: {
-          product: {
-            name: "asc",
-          },
-        },
-      },
+      { school: { name: "asc" } },
+      { productVariant: { product: { name: "asc" } } },
     ],
   });
 
@@ -86,20 +83,22 @@ export async function GET(request: Request): Promise<Response> {
       salePrice: Number(variant.salePrice),
       mrp: variant.mrp ? Number(variant.mrp) : "",
       costPrice: variant.costPrice ? Number(variant.costPrice) : "",
-      wholesaleRate: variant.wholesaleRate ? Number(variant.wholesaleRate) : "",
+      wholesaleRate: variant.wholesaleRate
+        ? Number(variant.wholesaleRate)
+        : "",
+      gstRate: Number(variant.gstRate),
+      hsnCode: variant.hsnCode || "",
       quantity: stock.quantity,
       reorderLevel: stock.reorderLevel,
     };
   });
 
   const buffer = await createProductsExportBuffer(rows);
-  const body = toArrayBuffer(buffer);
-
-  const fileName = schoolId
+  const fileName = requestedSchoolId
     ? "products-export-school-wise.xlsx"
     : "products-export-all-schools.xlsx";
 
-  return new Response(body, {
+  return new Response(toArrayBuffer(buffer), {
     headers: {
       "Content-Type": EXCEL_CONTENT_TYPE,
       "Content-Disposition": `attachment; filename="${fileName}"`,

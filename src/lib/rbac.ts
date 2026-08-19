@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { RoleName } from "@/generated/prisma/client";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -171,46 +170,10 @@ const PERMISSION_ROLES: Record<Permission, RoleName[]> = {
 };
 
 export async function getAccessScope(): Promise<AccessScope> {
+  // requireUser() already validates the JWT against the current database
+  // and refreshes active school-role information from PostgreSQL.
   const sessionUser = await requireUser();
-
-  const dbUser = await prisma.user.findFirst({
-    where: {
-      id: sessionUser.id,
-      isActive: true,
-      deletedAt: null,
-    },
-    select: {
-      id: true,
-      email: true,
-      schoolRoles: {
-        where: {
-          isActive: true,
-          school: {
-            isActive: true,
-          },
-        },
-        select: {
-          schoolId: true,
-          role: true,
-          school: {
-            select: {
-              name: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  if (!dbUser || dbUser.schoolRoles.length === 0) {
-    redirect("/login");
-  }
-
-  const roles = dbUser.schoolRoles.map((schoolRole) => ({
-    schoolId: schoolRole.schoolId,
-    schoolName: schoolRole.school.name,
-    role: schoolRole.role,
-  }));
+  const roles = sessionUser.roles;
 
   const isSuperAdmin = roles.some(
     (role) => role.role === RoleName.SUPER_ADMIN,
@@ -219,8 +182,8 @@ export async function getAccessScope(): Promise<AccessScope> {
   const schoolIds = Array.from(new Set(roles.map((role) => role.schoolId)));
 
   return {
-    userId: dbUser.id,
-    email: dbUser.email,
+    userId: sessionUser.id,
+    email: sessionUser.email,
     isSuperAdmin,
     roles,
     schoolIds,
@@ -249,6 +212,19 @@ export function hasPermission(
 
     return true;
   });
+}
+
+export function getSchoolIdsForPermission(
+  access: AccessScope,
+  permission: Permission,
+) {
+  if (access.isSuperAdmin) {
+    return access.schoolIds;
+  }
+
+  return access.schoolIds.filter((schoolId) =>
+    hasPermission(access, permission, schoolId),
+  );
 }
 
 export function requirePermission(

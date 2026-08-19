@@ -165,7 +165,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
     query,
   });
 
-  const [schools, products] = await prisma.$transaction([
+  const [schools, products] = await Promise.all([
     prisma.school.findMany({
       where: schoolWhere,
       orderBy: {

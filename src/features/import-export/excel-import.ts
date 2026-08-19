@@ -119,6 +119,19 @@ export async function parseProductsImportBuffer(
   });
 
   const columns = {
+    // Existing opening-stock workbooks use Branch / Warehouse for the school.
+    // Prefer the explicit School headers first, then fall back to those legacy names.
+    school: findColumn(headers, [
+      "School",
+      "School Name",
+      "Branch",
+      "Branch Name",
+      "Warehouse",
+      "Warehouse Name",
+    ]),
+    schoolCode:
+      headers.get(normalizeHeader("School Code")) ??
+      headers.get(normalizeHeader("SchoolCode")),
     name: findColumn(headers, ["Product Name", "Product", "Item", "Name"]),
     category: findColumn(headers, ["Category"]),
     sku: findColumn(headers, [
@@ -143,6 +156,8 @@ export async function parseProductsImportBuffer(
     mrp: findColumn(headers, ["MRP"]),
     costPrice: findColumn(headers, ["Cost Price", "Cost", "Purchase Price"]),
     wholesaleRate: findColumn(headers, ["Wholesale Rate", "Wholesale"]),
+    gstRate: findColumn(headers, ["GST Rate", "GST", "Tax Rate"]),
+    hsnCode: findColumn(headers, ["HSN Code", "HSN"]),
     quantity: findColumn(headers, [
       "Opening Stock",
       "Current Stock",
@@ -153,6 +168,15 @@ export async function parseProductsImportBuffer(
     ]),
     reorderLevel: findColumn(headers, ["Reorder Level", "Reorder"]),
   };
+
+  if (
+    columns.school === undefined &&
+    columns.schoolCode === undefined
+  ) {
+    throw new Error(
+      "Missing school column. Include School, School Code, Branch, or Warehouse so each stock row can be mapped to the correct school."
+    );
+  }
 
   if (
     columns.name === undefined ||
@@ -177,6 +201,14 @@ export async function parseProductsImportBuffer(
 
     rows.push({
       rowNumber,
+      school:
+        columns.school !== undefined
+          ? clean(row.getCell(columns.school).value)
+          : undefined,
+      schoolCode:
+        columns.schoolCode !== undefined
+          ? clean(row.getCell(columns.schoolCode).value)
+          : undefined,
       name,
       category:
         columns.category !== undefined
@@ -221,6 +253,14 @@ export async function parseProductsImportBuffer(
         columns.wholesaleRate !== undefined
           ? toDecimalString(row.getCell(columns.wholesaleRate).value)
           : null,
+      gstRate:
+        columns.gstRate !== undefined
+          ? toDecimalString(row.getCell(columns.gstRate).value) || "0.00"
+          : "0.00",
+      hsnCode:
+        columns.hsnCode !== undefined
+          ? clean(row.getCell(columns.hsnCode).value)
+          : undefined,
       quantity:
         columns.quantity !== undefined
           ? toNumber(row.getCell(columns.quantity).value)
@@ -232,5 +272,37 @@ export async function parseProductsImportBuffer(
     });
   });
 
+  return rows;
+}
+export async function parseStudentsImportBuffer(buffer: Buffer): Promise<import("@/features/import-export/schemas").ParsedStudentImportRow[]> {
+  const workbook = new ExcelJS.Workbook();
+  try { await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer); } catch { throw new Error("Unable to read student Excel file. Please use the provided .xlsx template."); }
+  const worksheet = workbook.worksheets[0]; if (!worksheet) throw new Error("No worksheet found in Excel file.");
+  const headers = new Map<string, number>();
+  worksheet.getRow(1).eachCell((cell, columnNumber) => { const h = normalizeHeader(cell.value); if (h) headers.set(h, columnNumber); });
+  const columns = {
+    name: findColumn(headers, ["Student Name", "Name", "Student"]),
+    className: findColumn(headers, ["Class", "Class Name"]),
+    sectionName: findColumn(headers, ["Section", "Section Name"]),
+    admissionNo: findColumn(headers, ["Admission No", "Admission Number", "Admission"]),
+    rollNumber: findColumn(headers, ["Roll No", "Roll Number", "Roll"]),
+    parentName: findColumn(headers, ["Parent / Guardian", "Parent Name", "Guardian"]),
+    parentPhone: findColumn(headers, ["Contact Number", "Phone", "Mobile", "Parent Phone"]),
+    address: findColumn(headers, ["Address"]),
+  };
+  if (columns.name === undefined || columns.className === undefined || columns.parentPhone === undefined) throw new Error("Missing required columns. Required: Student Name, Class, Contact Number.");
+  const rows: import("@/features/import-export/schemas").ParsedStudentImportRow[] = [];
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const name = clean(row.getCell(columns.name!).value); const className = clean(row.getCell(columns.className!).value); const parentPhone = clean(row.getCell(columns.parentPhone!).value);
+    if (!name && !className && !parentPhone) return;
+    rows.push({ rowNumber, name, className, parentPhone,
+      sectionName: columns.sectionName === undefined ? undefined : clean(row.getCell(columns.sectionName).value),
+      admissionNo: columns.admissionNo === undefined ? undefined : clean(row.getCell(columns.admissionNo).value),
+      rollNumber: columns.rollNumber === undefined ? undefined : clean(row.getCell(columns.rollNumber).value),
+      parentName: columns.parentName === undefined ? undefined : clean(row.getCell(columns.parentName).value),
+      address: columns.address === undefined ? undefined : clean(row.getCell(columns.address).value),
+    });
+  });
   return rows;
 }

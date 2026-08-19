@@ -1,947 +1,140 @@
 "use client";
 
-import { useCallback, useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
-
 import { createPosInvoiceAction } from "@/features/pos/actions";
+import type { StudentOption } from "@/features/students/types";
 
-// ==============================
-// Constants & Types
-// ==============================
-
-const MAX_VISIBLE_PRODUCTS = 200;
-const MAX_CART_ITEMS = 50;
-
-export type PosSchoolOption = {
-  id: string;
-  name: string;
-};
-
+export type PosSchoolOption = { id: string; name: string };
 export type PosProductOption = {
-  inventoryStockId: string;
-  productVariantId: string;
-  schoolId: string;
-  schoolName: string;
-
-  productName: string;
-  displayName: string;
-  variantName: string;
-  category: string;
-
-  sku: string;
-  barcode: string;
-  unit: string;
-
-  className: string;
-  sectionName: string;
-  size: string;
-  color: string;
-
-  salePrice: number;
-  stockQty: number;
-  searchText: string;
+  inventoryStockId: string; productVariantId: string; schoolId: string; schoolName: string;
+  productName: string; displayName: string; variantName: string; category: string;
+  sku: string; barcode: string; unit: string; className: string; sectionName: string; size: string; color: string;
+  salePrice: number; gstRate: number; stockQty: number; searchText: string;
 };
+type CartItem = { inventoryStockId: string; quantity: number };
 
-type CartItem = {
-  inventoryStockId: string;
-  quantity: number;
-};
-
-type PosBillingFormProps = {
-  schools: PosSchoolOption[];
-  products: PosProductOption[];
-  paymentModes: string[];
-};
-
-// ==============================
-// Pure Helpers
-// ==============================
-
-function normalize(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function compact(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, "");
-}
-
-function money(value: number): string {
-  const safe = Number.isFinite(value) ? value : 0;
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-  }).format(safe);
-}
-
-function roundMoney(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function formatPaymentMode(mode: string): string {
-  return mode
-    .split("_")
-    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
-    .join(" ");
-}
-
-function uniqueSorted(values: string[]): string[] {
-  return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean))).sort(
-    (a, b) => a.localeCompare(b),
-  );
-}
-
-function productLabel(product: PosProductOption): string {
-  return product.displayName || product.productName;
-}
-
-function productMeta(product: PosProductOption): string {
-  return [
-    product.category,
-    product.sku ? `SKU: ${product.sku}` : "",
-    product.barcode ? `Barcode: ${product.barcode}` : "",
-    product.unit ? `Unit: ${product.unit}` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-function getProductScore(product: PosProductOption, keyword: string): number {
-  if (!keyword) return 0;
-  const normalKeyword = normalize(keyword);
-  const compactKeyword = compact(keyword);
-  const name = normalize(product.productName);
-  const label = normalize(productLabel(product));
-  const sku = compact(product.sku);
-  const barcode = compact(product.barcode);
-  const searchText = normalize(product.searchText);
-
-  let score = 0;
-  if (sku && sku === compactKeyword) score += 1000;
-  if (barcode && barcode === compactKeyword) score += 1000;
-  if (sku && sku.includes(compactKeyword)) score += 500;
-  if (barcode && barcode.includes(compactKeyword)) score += 500;
-  if (name.startsWith(normalKeyword)) score += 300;
-  if (label.startsWith(normalKeyword)) score += 250;
-  if (searchText.includes(normalKeyword)) score += 100;
-  return score;
-}
-
-// ==============================
-// Submit Button (with useFormStatus)
-// ==============================
+const normalize = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
+const money = (v: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number.isFinite(v) ? v : 0);
+const round = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+const formatMode = (v: string) => v.split("_").map(x => x[0] + x.slice(1).toLowerCase()).join(" ");
 
 function SubmitButton({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={disabled || pending}
-      className="mt-5 w-full rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 transition-colors"
-    >
-      {pending ? "Creating Invoice..." : "Create Invoice"}
-    </button>
-  );
+  return <button disabled={disabled || pending} className="w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-300">{pending ? "Creating invoice..." : "Create Invoice"}</button>;
 }
 
-// ==============================
-// Main Component
-// ==============================
-
-export function PosBillingForm({
-  schools,
-  products,
-  paymentModes,
-}: PosBillingFormProps) {
-  // ---------- State ----------
+export function PosBillingForm({ schools, products, students, paymentModes }: { schools: PosSchoolOption[]; products: PosProductOption[]; students: StudentOption[]; paymentModes: string[] }) {
   const [schoolId, setSchoolId] = useState(schools[0]?.id ?? "");
-  const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const [productSearch, setProductSearch] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
+  const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerClass, setCustomerClass] = useState("");
+  const [customerSection, setCustomerSection] = useState("");
+  const [category, setCategory] = useState("");
   const [classFilter, setClassFilter] = useState("");
-  const [sectionFilter, setSectionFilter] = useState("");
-
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [discountAmount, setDiscountAmount] = useState("0");
+  const [discount, setDiscount] = useState("0");
   const [paidAmount, setPaidAmount] = useState("");
+  const deferredProductSearch = useDeferredValue(productSearch);
+  const deferredStudentSearch = useDeferredValue(studentSearch);
 
-  // Defer search updates to keep UI responsive
-  const deferredSearch = useDeferredValue(search);
+  const schoolProducts = useMemo(() => products.filter(p => p.schoolId === schoolId), [products, schoolId]);
+  const schoolStudents = useMemo(() => students.filter(s => s.schoolId === schoolId), [students, schoolId]);
+  const byStock = useMemo(() => new Map(products.map(p => [p.inventoryStockId, p])), [products]);
+  const categories = useMemo(() => Array.from(new Set(schoolProducts.map(p => p.category).filter(Boolean))).sort(), [schoolProducts]);
+  const classes = useMemo(() => Array.from(new Set(schoolProducts.map(p => p.className).filter(Boolean))).sort(), [schoolProducts]);
 
-  // ---------- Memoized derived data ----------
-  const productByStockId = useMemo(
-    () => new Map(products.map((p) => [p.inventoryStockId, p])),
-    [products],
-  );
+  const productSuggestions = useMemo(() => {
+    const q = normalize(deferredProductSearch);
+    return schoolProducts.filter(p => (!category || p.category === category) && (!classFilter || p.className === classFilter) && (!q || normalize(p.searchText).includes(q))).sort((a,b) => {
+      if (!q) return a.displayName.localeCompare(b.displayName);
+      const an = normalize(a.productName), bn = normalize(b.productName);
+      const as = an.startsWith(q) ? 0 : normalize(a.sku).startsWith(q) ? 1 : 2;
+      const bs = bn.startsWith(q) ? 0 : normalize(b.sku).startsWith(q) ? 1 : 2;
+      return as - bs || a.displayName.localeCompare(b.displayName);
+    }).slice(0, 80);
+  }, [schoolProducts, deferredProductSearch, category, classFilter]);
 
-  const schoolProducts = useMemo(
-    () => products.filter((p) => p.schoolId === schoolId),
-    [products, schoolId],
-  );
+  const studentSuggestions = useMemo(() => {
+    const q = normalize(deferredStudentSearch);
+    if (!q) return [];
+    return schoolStudents.filter(s => normalize(s.searchText).includes(q)).slice(0, 8);
+  }, [schoolStudents, deferredStudentSearch]);
 
-  const filterOptions = useMemo(
-    () => ({
-      categories: uniqueSorted(schoolProducts.map((p) => p.category)),
-      classes: uniqueSorted(schoolProducts.map((p) => p.className)),
-      sections: uniqueSorted(schoolProducts.map((p) => p.sectionName)),
-    }),
-    [schoolProducts],
-  );
+  const subtotal = round(cart.reduce((sum, item) => { const p = byStock.get(item.inventoryStockId); return sum + (p ? p.salePrice * item.quantity : 0); }, 0));
+  const gstAmount = round(cart.reduce((sum, item) => { const p = byStock.get(item.inventoryStockId); return sum + (p ? p.salePrice * item.quantity * p.gstRate / 100 : 0); }, 0));
+  const grossTotal = round(subtotal + gstAmount);
+  const discountNum = Number(discount || 0);
+  const discountInvalid = !Number.isFinite(discountNum) || discountNum < 0 || discountNum > grossTotal;
+  const payable = round(grossTotal - (discountInvalid ? 0 : discountNum));
+  const paidNum = paidAmount.trim() ? Number(paidAmount) : payable;
+  const paidInvalid = paidAmount.trim() !== "" && (!Number.isFinite(paidNum) || paidNum < 0 || paidNum > payable);
 
-  const filteredProducts = useMemo(() => {
-    const keyword = normalize(deferredSearch);
-    const tokens = keyword.split(" ").filter(Boolean);
-
-    let result = schoolProducts;
-
-    // Apply category/class/section filters
-    if (categoryFilter) {
-      result = result.filter((p) => p.category === categoryFilter);
-    }
-    if (classFilter) {
-      result = result.filter((p) => p.className === classFilter);
-    }
-    if (sectionFilter) {
-      result = result.filter((p) => p.sectionName === sectionFilter);
-    }
-
-    // Apply search
-    if (tokens.length > 0) {
-      result = result.filter((product) => {
-        const searchable = normalize(
-          [
-            product.searchText,
-            product.productName,
-            product.displayName,
-            product.variantName,
-            product.category,
-            product.sku,
-            product.barcode,
-            product.className,
-            product.sectionName,
-            product.size,
-            product.color,
-          ]
-            .filter(Boolean)
-            .join(" "),
-        );
-        return tokens.every((token) => searchable.includes(token));
-      });
-    }
-
-    // Sort by relevance
-    result.sort((a, b) => {
-      const scoreA = getProductScore(a, deferredSearch);
-      const scoreB = getProductScore(b, deferredSearch);
-      if (scoreB !== scoreA) return scoreB - scoreA;
-      return productLabel(a).localeCompare(productLabel(b));
+  function resetForSchool(id: string) {
+    setSchoolId(id); setCart([]); setProductSearch(""); setStudentSearch(""); setSelectedStudentId("");
+    setCustomerName(""); setCustomerPhone(""); setCustomerClass(""); setCustomerSection(""); setCategory(""); setClassFilter(""); setDiscount("0"); setPaidAmount("");
+  }
+  function chooseStudent(s: StudentOption) {
+    setSelectedStudentId(s.id); setStudentSearch(s.name); setCustomerName(s.name); setCustomerPhone(s.phone); setCustomerClass(s.className); setCustomerSection(s.sectionName);
+  }
+  function addProduct(id: string) {
+    const p = byStock.get(id); if (!p) return;
+    setCart(current => {
+      const existing = current.find(i => i.inventoryStockId === id);
+      if (existing && existing.quantity >= p.stockQty) return current;
+      if (existing) return current.map(i => i.inventoryStockId === id ? { ...i, quantity: i.quantity + 1 } : i);
+      if (current.length >= 50) return current;
+      return [...current, { inventoryStockId: id, quantity: 1 }];
     });
+  }
+  function updateQty(id: string, qty: number) {
+    const p = byStock.get(id); if (!p) return;
+    const safe = Math.max(1, Math.min(p.stockQty, Math.trunc(qty || 1)));
+    setCart(c => c.map(i => i.inventoryStockId === id ? { ...i, quantity: safe } : i));
+  }
 
-    return result.slice(0, MAX_VISIBLE_PRODUCTS);
-  }, [
-    schoolProducts,
-    deferredSearch,
-    categoryFilter,
-    classFilter,
-    sectionFilter,
-  ]);
+  return <form action={createPosInvoiceAction} className="space-y-6">
+    {cart.map((item, i) => <span key={item.inventoryStockId}><input type="hidden" name={`inventoryStockId_${i}`} value={item.inventoryStockId}/><input type="hidden" name={`quantity_${i}`} value={item.quantity}/></span>)}
+    <input type="hidden" name="studentId" value={selectedStudentId}/>
+    <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="space-y-6">
+        <section className="rounded-2xl border bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-slate-950">Student / Customer</h2><p className="mt-1 text-sm text-slate-500">Name, class, school and number are required. Start typing a student name, admission no., roll no. or phone to get suggestions on every character.</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="text-sm font-medium">School<select name="schoolId" value={schoolId} onChange={e => resetForSchool(e.target.value)} required className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5"><option value="">Select school</option>{schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+            <div className="relative"><label className="text-sm font-medium">Find existing student<input value={studentSearch} onChange={e => { setStudentSearch(e.target.value); setSelectedStudentId(""); }} placeholder="Type any character..." className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5"/></label>{studentSuggestions.length > 0 && studentSearch && !selectedStudentId ? <div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-xl border bg-white shadow-xl">{studentSuggestions.map(s => <button key={s.id} type="button" onClick={() => chooseStudent(s)} className="block w-full border-b px-3 py-2 text-left text-sm hover:bg-slate-50"><b>{s.name}</b><span className="block text-xs text-slate-500">{s.schoolName} · Class {s.className}{s.sectionName ? ` / ${s.sectionName}` : ""} · {s.phone}</span></button>)}</div> : null}</div>
+            <label className="text-sm font-medium">Name *<input name="customerName" value={customerName} onChange={e => setCustomerName(e.target.value)} required className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5"/></label>
+            <label className="text-sm font-medium">Contact number *<input name="customerPhone" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} required className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5"/></label>
+            <label className="text-sm font-medium">Class *<input name="customerClassName" value={customerClass} onChange={e => setCustomerClass(e.target.value)} required className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5"/></label>
+            <label className="text-sm font-medium">Section<input name="customerSectionName" value={customerSection} onChange={e => setCustomerSection(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5"/></label>
+          </div>
+        </section>
 
-  const cartProductIds = useMemo(
-    () => new Set(cart.map((item) => item.inventoryStockId)),
-    [cart],
-  );
+        <section className="rounded-2xl border bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-slate-950">Products</h2><p className="mt-1 text-sm text-slate-500">Live suggestions narrow down with every character across name, SKU, barcode, class, size, colour and category.</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_180px_160px]"><input value={productSearch} onChange={e => setProductSearch(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && productSuggestions[0]) { e.preventDefault(); addProduct(productSuggestions[0].inventoryStockId); } }} placeholder="Search product / SKU / barcode..." className="rounded-lg border border-slate-300 px-3 py-2.5"/><select value={category} onChange={e => setCategory(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2.5"><option value="">All categories</option>{categories.map(c => <option key={c}>{c}</option>)}</select><select value={classFilter} onChange={e => setClassFilter(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2.5"><option value="">All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select></div>
+          <div className="mt-4 max-h-[460px] overflow-auto rounded-xl border">{productSuggestions.map(p => <div key={p.inventoryStockId} className="grid gap-2 border-b p-3 md:grid-cols-[1fr_110px_90px]"><div><p className="font-medium text-slate-900">{p.displayName}</p><p className="text-xs text-slate-500">{[p.category, p.sku && `SKU ${p.sku}`, p.barcode && `Barcode ${p.barcode}`, p.gstRate ? `GST ${p.gstRate}%` : "GST 0%"].filter(Boolean).join(" · ")}</p></div><div className="text-sm"><b>{money(p.salePrice)}</b><p className="text-xs text-slate-500">Stock {p.stockQty}</p></div><button type="button" onClick={() => addProduct(p.inventoryStockId)} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white">Add</button></div>)}{productSuggestions.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">No matching stock.</p> : null}</div>
+        </section>
 
-  // ---------- Cart calculations ----------
-  const subtotal = useMemo(
-    () =>
-      roundMoney(
-        cart.reduce((total, item) => {
-          const product = productByStockId.get(item.inventoryStockId);
-          return total + (product ? product.salePrice * item.quantity : 0);
-        }, 0),
-      ),
-    [cart, productByStockId],
-  );
-
-  const discountNumber = Number(discountAmount || 0);
-  const discountInvalid =
-    !Number.isFinite(discountNumber) ||
-    discountNumber < 0 ||
-    discountNumber > subtotal;
-  const discount = discountInvalid ? 0 : roundMoney(discountNumber);
-  const payable = Math.max(0, roundMoney(subtotal - discount));
-
-  const paidNumber = paidAmount.trim() ? Number(paidAmount) : payable;
-  const paidInvalid =
-    paidAmount.trim() !== "" &&
-    (!Number.isFinite(paidNumber) || paidNumber < 0 || paidNumber > payable);
-  const paid = paidInvalid ? 0 : roundMoney(paidNumber);
-  const balance = Math.max(0, roundMoney(payable - paid));
-
-  const selectedSchoolName =
-    schools.find((s) => s.id === schoolId)?.name ?? "Selected School";
-
-  const submitDisabled =
-    cart.length === 0 || !schoolId || discountInvalid || paidInvalid;
-
-  // ---------- Event handlers (useCallback) ----------
-  const handleSchoolChange = useCallback(
-    (value: string) => {
-      setSchoolId(value);
-      setSearch("");
-      setCategoryFilter("");
-      setClassFilter("");
-      setSectionFilter("");
-      setCart([]);
-      setDiscountAmount("0");
-      setPaidAmount("");
-    },
-    [],
-  );
-
-  const clearFilters = useCallback(() => {
-    setSearch("");
-    setCategoryFilter("");
-    setClassFilter("");
-    setSectionFilter("");
-  }, []);
-
-  const addItem = useCallback(
-    (inventoryStockId: string, quantity = 1) => {
-      const product = productByStockId.get(inventoryStockId);
-      if (!product) {
-        alert("Product not found. Please refresh and try again.");
-        return;
-      }
-      const safeQuantity = Math.trunc(quantity);
-      if (!Number.isInteger(safeQuantity) || safeQuantity <= 0) {
-        alert("Quantity must be greater than 0.");
-        return;
-      }
-
-      setCart((current) => {
-        const existing = current.find(
-          (item) => item.inventoryStockId === inventoryStockId,
-        );
-        if (!existing && current.length >= MAX_CART_ITEMS) {
-          alert(
-            `You can add up to ${MAX_CART_ITEMS} different products in one invoice.`,
-          );
-          return current;
-        }
-        const existingQty = existing?.quantity ?? 0;
-        const nextQty = existingQty + safeQuantity;
-        if (nextQty > product.stockQty) {
-          alert(
-            `Only ${product.stockQty} stock available for ${productLabel(product)}.`,
-          );
-          return current;
-        }
-        if (existing) {
-          return current.map((item) =>
-            item.inventoryStockId === inventoryStockId
-              ? { ...item, quantity: nextQty }
-              : item,
-          );
-        }
-        return [...current, { inventoryStockId, quantity: safeQuantity }];
-      });
-    },
-    [productByStockId],
-  );
-
-  const addFirstFilteredProduct = useCallback(() => {
-    if (filteredProducts.length) {
-      addItem(filteredProducts[0].inventoryStockId);
-    }
-  }, [filteredProducts, addItem]);
-
-  const updateQuantity = useCallback(
-    (inventoryStockId: string, quantity: number) => {
-      const product = productByStockId.get(inventoryStockId);
-      if (!product) return;
-      if (!Number.isFinite(quantity)) return;
-      const safeQty = Math.min(
-        Math.max(Math.trunc(quantity), 1),
-        product.stockQty,
-      );
-      setCart((current) =>
-        current.map((item) =>
-          item.inventoryStockId === inventoryStockId
-            ? { ...item, quantity: safeQty }
-            : item,
-        ),
-      );
-    },
-    [productByStockId],
-  );
-
-  const removeItem = useCallback((inventoryStockId: string) => {
-    setCart((current) =>
-      current.filter((item) => item.inventoryStockId !== inventoryStockId),
-    );
-  }, []);
-
-  const clearCart = useCallback(() => setCart([]), []);
-
-  // ---------- Render ----------
-  return (
-    <form action={createPosInvoiceAction} className="space-y-6">
-      {/* Hidden cart fields */}
-      {cart.map((item, index) => (
-        <div key={item.inventoryStockId}>
-          <input
-            type="hidden"
-            name={`inventoryStockId_${index}`}
-            value={item.inventoryStockId}
-          />
-          <input
-            type="hidden"
-            name={`quantity_${index}`}
-            value={item.quantity}
-          />
-        </div>
-      ))}
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-        {/* LEFT COLUMN */}
-        <div className="space-y-6">
-          {/* Customer Details */}
-          <section className="rounded-2xl border bg-white p-6 shadow-sm">
-            <header className="mb-5">
-              <h2 className="text-base font-semibold text-slate-900">
-                Customer Details
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Select school and enter customer details for the invoice.
-              </p>
-            </header>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="schoolId"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  School
-                </label>
-                <select
-                  id="schoolId"
-                  name="schoolId"
-                  required
-                  value={schoolId}
-                  onChange={(e) => handleSchoolChange(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                >
-                  {schools.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="customerName"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  Customer Name
-                </label>
-                <input
-                  id="customerName"
-                  name="customerName"
-                  type="text"
-                  required
-                  placeholder="Enter customer name"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="customerPhone"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  Phone
-                </label>
-                <input
-                  id="customerPhone"
-                  name="customerPhone"
-                  type="tel"
-                  placeholder="Enter phone number"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label
-                    htmlFor="customerClassName"
-                    className="mb-1 block text-sm font-medium text-slate-700"
-                  >
-                    Class
-                  </label>
-                  <input
-                    id="customerClassName"
-                    name="customerClassName"
-                    type="text"
-                    placeholder="Class"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="customerSectionName"
-                    className="mb-1 block text-sm font-medium text-slate-700"
-                  >
-                    Section
-                  </label>
-                  <input
-                    id="customerSectionName"
-                    name="customerSectionName"
-                    type="text"
-                    placeholder="Section"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                  />
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Products */}
-          <section className="rounded-2xl border bg-white p-6 shadow-sm">
-            <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">
-                  Products
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Showing stock for {selectedSchoolName}. Search supports name,
-                  SKU, barcode, class, section, size, colour, and category.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-              >
-                Clear Filters
-              </button>
-            </header>
-
-            <div className="grid gap-3 lg:grid-cols-[1fr_160px_140px_140px]">
-              <div>
-                <label
-                  htmlFor="productSearch"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  Search Product
-                </label>
-                <input
-                  id="productSearch"
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addFirstFilteredProduct();
-                    }
-                  }}
-                  placeholder="Type product / SKU / barcode and press Enter"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Category
-                </label>
-                <select
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                >
-                  <option value="">All Categories</option>
-                  {filterOptions.categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Class
-                </label>
-                <select
-                  value={classFilter}
-                  onChange={(e) => setClassFilter(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                >
-                  <option value="">All Classes</option>
-                  {filterOptions.classes.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Section
-                </label>
-                <select
-                  value={sectionFilter}
-                  onChange={(e) => setSectionFilter(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                >
-                  <option value="">All Sections</option>
-                  {filterOptions.sections.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-5 overflow-hidden rounded-xl border">
-              <div className="flex items-center justify-between border-b bg-slate-50 px-4 py-3">
-                <p className="text-sm font-medium text-slate-700">
-                  {filteredProducts.length} product
-                  {filteredProducts.length === 1 ? "" : "s"} found
-                </p>
-                <p className="text-xs text-slate-500">
-                  Press Enter to add the first result
-                </p>
-              </div>
-
-              {schoolProducts.length === 0 ? (
-                <div className="px-6 py-12 text-center">
-                  <p className="text-sm font-medium text-slate-900">
-                    No sellable stock found for this school.
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Check product status, variant status, and inventory quantity.
-                  </p>
-                </div>
-              ) : filteredProducts.length === 0 ? (
-                <div className="px-6 py-12 text-center">
-                  <p className="text-sm font-medium text-slate-900">
-                    No product matched your search or filters.
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Clear filters or try SKU/barcode/product name.
-                  </p>
-                </div>
-              ) : (
-                <div className="max-h-[460px] divide-y overflow-y-auto">
-                  {filteredProducts.map((product) => {
-                    const inCart = cartProductIds.has(product.inventoryStockId);
-                    const cartQty =
-                      cart.find(
-                        (item) =>
-                          item.inventoryStockId === product.inventoryStockId,
-                      )?.quantity ?? 0;
-                    const cannotAdd = cartQty >= product.stockQty;
-
-                    return (
-                      <div
-                        key={product.inventoryStockId}
-                        className="grid gap-3 px-4 py-4 hover:bg-slate-50 transition-colors md:grid-cols-[1fr_110px_90px]"
-                      >
-                        <div>
-                          <p className="font-medium text-slate-900">
-                            {productLabel(product)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {productMeta(product) || "No product metadata"}
-                          </p>
-                          {inCart && (
-                            <p className="mt-1 text-xs font-medium text-emerald-700">
-                              In cart: {cartQty}
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-sm md:text-right">
-                          <p className="font-semibold text-slate-900">
-                            {money(product.salePrice)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Stock: {product.stockQty}
-                          </p>
-                        </div>
-                        <div className="flex items-center md:justify-end">
-                          <button
-                            type="button"
-                            onClick={() => addItem(product.inventoryStockId)}
-                            disabled={cannotAdd}
-                            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 transition-colors"
-                          >
-                            {cannotAdd ? "Added" : "Add"}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* Cart */}
-          <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">
-                  Billing Cart
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {cart.length} item{cart.length === 1 ? "" : "s"} added.
-                </p>
-              </div>
-              {cart.length > 0 && (
-                <button
-                  type="button"
-                  onClick={clearCart}
-                  className="text-sm font-medium text-red-600 hover:text-red-700 transition-colors"
-                >
-                  Clear Cart
-                </button>
-              )}
-            </div>
-
-            {cart.length === 0 ? (
-              <div className="px-6 py-12 text-center">
-                <p className="text-sm font-medium text-slate-900">
-                  No items added yet.
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  Search a product above and click Add.
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                    <tr>
-                      <th className="px-6 py-3">Item</th>
-                      <th className="px-6 py-3 text-right">Rate</th>
-                      <th className="px-6 py-3 text-center">Qty</th>
-                      <th className="px-6 py-3 text-right">Total</th>
-                      <th className="px-6 py-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {cart.map((item) => {
-                      const product = productByStockId.get(
-                        item.inventoryStockId,
-                      );
-                      if (!product) return null;
-                      const lineTotal = roundMoney(
-                        product.salePrice * item.quantity,
-                      );
-                      return (
-                        <tr key={item.inventoryStockId}>
-                          <td className="px-6 py-4">
-                            <p className="font-medium text-slate-900">
-                              {productLabel(product)}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {productMeta(product)}
-                              {productMeta(product) ? " · " : ""}
-                              Stock: {product.stockQty}
-                            </p>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            {money(product.salePrice)}
-                          </td>
-                          <td className="px-6 py-4">
-                            <input
-                              type="number"
-                              min="1"
-                              max={product.stockQty}
-                              step="1"
-                              value={item.quantity}
-                              onChange={(e) =>
-                                updateQuantity(
-                                  item.inventoryStockId,
-                                  Number(e.target.value),
-                                )
-                              }
-                              className="mx-auto w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-center text-sm outline-none focus:border-slate-900 transition-colors"
-                            />
-                          </td>
-                          <td className="px-6 py-4 text-right font-medium">
-                            {money(lineTotal)}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => removeItem(item.inventoryStockId)}
-                              className="text-sm font-medium text-red-600 hover:text-red-700 transition-colors"
-                            >
-                              Remove
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </div>
-
-        {/* RIGHT COLUMN – Payment & Summary */}
-        <div className="space-y-6">
-          <section className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-base font-semibold text-slate-900">
-              Payment
-            </h2>
-            <div className="space-y-4">
-              <div>
-                <label
-                  htmlFor="paymentMode"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  Payment Mode
-                </label>
-                <select
-                  id="paymentMode"
-                  name="paymentMode"
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                >
-                  {paymentModes.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {formatPaymentMode(mode)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="discountAmount"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  Discount
-                </label>
-                <input
-                  id="discountAmount"
-                  name="discountAmount"
-                  type="number"
-                  min="0"
-                  max={subtotal}
-                  step="0.01"
-                  value={discountAmount}
-                  onChange={(e) => setDiscountAmount(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                />
-                {discountInvalid && (
-                  <p className="mt-1 text-xs text-red-600">
-                    Discount must be between 0 and {money(subtotal)}.
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label
-                  htmlFor="paidAmount"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  Paid Amount
-                </label>
-                <input
-                  id="paidAmount"
-                  name="paidAmount"
-                  type="number"
-                  min="0"
-                  max={payable}
-                  step="0.01"
-                  value={paidAmount}
-                  onChange={(e) => setPaidAmount(e.target.value)}
-                  placeholder="Leave blank for full payable amount"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                />
-                {paidInvalid && (
-                  <p className="mt-1 text-xs text-red-600">
-                    Paid amount must be between 0 and {money(payable)}.
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label
-                  htmlFor="transactionRef"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  Transaction Ref
-                </label>
-                <input
-                  id="transactionRef"
-                  name="transactionRef"
-                  type="text"
-                  placeholder="UPI/Card/Bank reference"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-base font-semibold text-slate-900">
-              Summary
-            </h2>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Subtotal</span>
-                <span className="font-medium text-slate-900">
-                  {money(subtotal)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Discount</span>
-                <span className="font-medium text-slate-900">
-                  {money(discount)}
-                </span>
-              </div>
-              <div className="flex justify-between border-t pt-3 text-base font-semibold">
-                <span>Payable</span>
-                <span>{money(payable)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Paid</span>
-                <span className="font-medium text-slate-900">{money(paid)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Balance</span>
-                <span className="font-medium text-slate-900">
-                  {money(balance)}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-2xl border bg-white p-6 shadow-sm">
-            <label
-              htmlFor="note"
-              className="mb-1 block text-sm font-medium text-slate-700"
-            >
-              Note
-            </label>
-            <textarea
-              id="note"
-              name="note"
-              rows={3}
-              placeholder="Optional note"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 transition-colors"
-            />
-            <SubmitButton disabled={submitDisabled} />
-          </section>
-        </div>
+        <section className="overflow-hidden rounded-2xl border bg-white shadow-sm"><div className="flex items-center justify-between border-b p-5"><div><h2 className="font-semibold text-slate-950">Billing Cart</h2><p className="text-sm text-slate-500">{cart.length} line item(s)</p></div>{cart.length ? <button type="button" onClick={() => setCart([])} className="text-sm font-semibold text-red-600">Clear</button> : null}</div>
+          {cart.length ? <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Item</th><th className="px-4 py-3">Base rate</th><th className="px-4 py-3">GST</th><th className="px-4 py-3">Qty</th><th className="px-4 py-3">Total</th><th></th></tr></thead><tbody className="divide-y">{cart.map(item => { const p = byStock.get(item.inventoryStockId)!; const base = round(p.salePrice * item.quantity); const gst = round(base * p.gstRate / 100); return <tr key={item.inventoryStockId}><td className="px-4 py-3 font-medium">{p.displayName}</td><td className="px-4 py-3">{money(p.salePrice)}</td><td className="px-4 py-3">{p.gstRate}% ({money(gst)})</td><td className="px-4 py-3"><input type="number" min={1} max={p.stockQty} value={item.quantity} onChange={e => updateQty(item.inventoryStockId, Number(e.target.value))} className="w-20 rounded-lg border px-2 py-1.5"/></td><td className="px-4 py-3 font-semibold">{money(base + gst)}</td><td className="px-4 py-3"><button type="button" onClick={() => setCart(c => c.filter(x => x.inventoryStockId !== item.inventoryStockId))} className="text-red-600">Remove</button></td></tr>; })}</tbody></table></div> : <p className="p-8 text-center text-sm text-slate-500">Add a product to begin.</p>}
+        </section>
       </div>
-    </form>
-  );
+
+      <div className="space-y-6">
+        <section className="rounded-2xl border bg-white p-6 shadow-sm"><h2 className="font-semibold text-slate-950">Payment</h2><div className="mt-4 space-y-4">
+          <label className="block text-sm font-medium">Mode<select name="paymentMode" className="mt-1 w-full rounded-lg border px-3 py-2.5">{paymentModes.map(m => <option key={m} value={m}>{formatMode(m)}</option>)}</select></label>
+          <label className="block text-sm font-medium">Discount<input name="discountAmount" type="number" min={0} max={grossTotal} step="0.01" value={discount} onChange={e => setDiscount(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2.5"/></label>
+          <label className="block text-sm font-medium">Exchange credit reference<input name="exchangeReturnNo" placeholder="RET-... (optional)" className="mt-1 w-full rounded-lg border px-3 py-2.5"/><span className="mt-1 block text-xs font-normal text-slate-500">For exchange credits, leave Paid Amount blank so the server applies the verified credit first.</span></label>
+          <label className="block text-sm font-medium">Paid amount<input name="paidAmount" type="number" min={0} step="0.01" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} placeholder="Blank = full amount due" className="mt-1 w-full rounded-lg border px-3 py-2.5"/></label>
+          <label className="block text-sm font-medium">Transaction reference<input name="transactionRef" className="mt-1 w-full rounded-lg border px-3 py-2.5"/></label>
+          <label className="block text-sm font-medium">Note<textarea name="note" rows={3} className="mt-1 w-full rounded-lg border px-3 py-2.5"/></label>
+        </div></section>
+        <section className="rounded-2xl border bg-white p-6 shadow-sm"><h2 className="font-semibold text-slate-950">Summary</h2><div className="mt-4 space-y-3 text-sm"><div className="flex justify-between"><span>Taxable subtotal</span><b>{money(subtotal)}</b></div><div className="flex justify-between"><span>GST amount</span><b>{money(gstAmount)}</b></div><div className="flex justify-between"><span>Total</span><b>{money(grossTotal)}</b></div><div className="flex justify-between"><span>Discount</span><b>- {money(discountInvalid ? 0 : discountNum)}</b></div><div className="flex justify-between border-t pt-3 text-base"><span>Payable before exchange credit</span><b>{money(payable)}</b></div></div><p className="mt-3 text-xs text-slate-500">Verified exchange credit, if entered, is deducted server-side and appears on the final invoice.</p><div className="mt-5"><SubmitButton disabled={!schoolId || !customerName || !customerPhone || !customerClass || !cart.length || discountInvalid || paidInvalid}/></div></section>
+      </div>
+    </div>
+  </form>;
 }
