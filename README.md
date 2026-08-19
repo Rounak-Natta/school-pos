@@ -1,36 +1,115 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# School POS System
 
-## Getting Started
+Multi-school POS, inventory, student, billing, transfer, return/exchange, GST, audit, notification and reporting system built with Next.js, TypeScript, Prisma and PostgreSQL.
 
-First, run the development server:
+## Requirements
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 20.19+ (Node 22 LTS recommended)
+- npm
+- Docker Desktop (recommended for local PostgreSQL)
+
+## Local setup
+
+```powershell
+cd C:\office\school-pos
+npm ci
+Copy-Item .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Set a strong `AUTH_SECRET` in `.env`. The default Docker database URL is:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```env
+DATABASE_URL="postgresql://postgres:password@localhost:5432/school_pos_system?schema=public"
+AUTH_SECRET="replace-with-at-least-32-random-characters"
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Start PostgreSQL and prepare Prisma:
 
-## Learn More
+```powershell
+docker compose up -d
+npm run db:generate
+npm run db:deploy
+npm run db:seed
+```
 
-To learn more about Next.js, take a look at the following resources:
+Start development:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```powershell
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open `http://localhost:3000`.
 
-## Deploy on Vercel
+## Demo users after seeding
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Main account:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Email: `admin@schoolpos.com`
+- Password: `Admin@12345`
+
+School accounts use password `School@12345`:
+
+- `hpgms@schoolpos.com`
+- `aranghata@schoolpos.com`
+- `taldi@schoolpos.com`
+- `chakdaha@schoolpos.com`
+
+Change demo passwords before production use.
+
+## Checks and tests
+
+Run each check separately while developing:
+
+```powershell
+npm run db:generate
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
+
+Or run the combined verification commands:
+
+```powershell
+npm run check
+npm run verify
+```
+
+`npm test` currently tests the Excel import parser, including the legacy multi-school opening-stock workbook format and student required fields.
+
+## Database utilities
+
+```powershell
+npm run db:studio
+npm run db:format
+npm run db:deploy
+```
+
+To completely reset a **local development** database and reseed it:
+
+```powershell
+npm run db:reset
+npm run db:seed
+npm run db:generate
+```
+
+Never run `db:reset` against production.
+
+## Multi-school stock import
+
+The product/stock importer supports one workbook containing multiple schools. It can map schools using `School`, `School Code`, or legacy `Branch` / `Warehouse` headers. Existing opening-stock files with columns such as `Item`, `Code`, `SIZE`, `Qty(Opening stock)`, `MRP`, and `Price` are supported.
+
+During upload the form is locked and shows processing feedback to prevent repeated submissions. Import history shows successful/failed row counts and row-level error details.
+
+## Production checklist
+
+Before deployment:
+
+```powershell
+npm ci
+npm run verify
+npm run db:deploy
+npm start
+```
+
+Back up the production database before applying migrations. Do not run the demo seed on an existing production database unless that is intentional.

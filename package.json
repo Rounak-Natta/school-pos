@@ -14,7 +14,11 @@
     "db:format": "prisma format",
     "db:reset": "prisma migrate reset",
     "db:seed": "tsx prisma/seed.ts",
-    "import:opening-stock": "tsx prisma/import-opening-stock.ts"
+    "import:opening-stock": "tsx prisma/import-opening-stock.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/import-export.test.ts",
+    "check": "npm run db:generate && npm run typecheck && npm run lint",
+    "verify": "npm run check && npm test && npm run build"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
@@ -44,6 +48,7 @@
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "dotenv": "^17.4.2"
   }
 }

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { InvoiceStatus } from "@/generated/prisma/client";
+import { InvoiceStatus, PaymentMode } from "@/generated/prisma/client";
 import { getInvoiceAccessScope } from "@/features/pos/invoice-access";
+import { addInvoicePaymentAction, cancelInvoiceAction } from "@/features/pos/invoice-actions";
 import { InvoiceShareActions } from "@/features/pos/invoice-share-actions";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/rbac";
@@ -102,7 +103,8 @@ export default async function InvoiceDetailPage({ params }: InvoicePageProps) {
   if (!invoice) notFound();
 
   const canReturn =
-    invoice.status !== InvoiceStatus.CANCELLED &&
+    invoice.status === InvoiceStatus.PAID &&
+    Number(invoice.balanceAmount) <= 0 &&
     hasPermission(access, Permission.RETURN_INVOICE, invoice.schoolId) &&
     invoice.items.some(
       (item) =>
@@ -110,11 +112,24 @@ export default async function InvoiceDetailPage({ params }: InvoicePageProps) {
         item.quantity,
     );
 
+  const canReceivePayment =
+    Number(invoice.balanceAmount) > 0 &&
+    invoice.status !== InvoiceStatus.CANCELLED &&
+    invoice.status !== InvoiceStatus.RETURNED &&
+    hasPermission(access, Permission.RECEIVE_PAYMENT, invoice.schoolId);
+
+  const canCancel =
+    invoice.status !== InvoiceStatus.CANCELLED &&
+    invoice.status !== InvoiceStatus.RETURNED &&
+    invoice.saleReturns.length === 0 &&
+    hasPermission(access, Permission.CANCEL_INVOICE, invoice.schoolId);
+
   const stockMovements = await prisma.stockMovement.findMany({
     where: {
       schoolId: invoice.schoolId,
       OR: [
         { referenceType: "INVOICE", referenceId: invoice.id },
+        { referenceType: "INVOICE_CANCEL", referenceId: invoice.id },
         {
           referenceType: "SALE_RETURN",
           referenceId: { in: invoice.saleReturns.map((entry) => entry.id) },
@@ -368,6 +383,65 @@ export default async function InvoiceDetailPage({ params }: InvoicePageProps) {
               </div>
             ) : null}
           </div>
+
+          {canReceivePayment ? (
+            <div className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-950">Collect Remaining Balance</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Record another payment against this invoice. The server prevents over-collection even if two users submit at the same time.
+              </p>
+              <form action={addInvoicePaymentAction} className="mt-4 space-y-3">
+                <input type="hidden" name="invoiceId" value={invoice.id} />
+                <label className="block text-xs font-semibold text-slate-600">
+                  Amount
+                  <input
+                    name="amount"
+                    type="number"
+                    min="0.01"
+                    max={Number(invoice.balanceAmount)}
+                    step="0.01"
+                    defaultValue={Number(invoice.balanceAmount).toFixed(2)}
+                    required
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Payment Mode
+                  <select name="mode" defaultValue={PaymentMode.CASH} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                    {Object.values(PaymentMode).map((mode) => (
+                      <option key={mode} value={mode}>{formatEnum(mode)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Transaction Reference
+                  <input name="transactionRef" placeholder="Optional" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                </label>
+                <button className="w-full rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800">
+                  Record Payment
+                </button>
+              </form>
+            </div>
+          ) : null}
+
+          {canCancel ? (
+            <details className="rounded-2xl border border-red-200 bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer text-sm font-semibold text-red-700">Cancel Invoice</summary>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Cancellation restores all sold stock and removes this invoice from active sales/collection reports. Invoices with return/exchange history must use the return workflow instead.
+              </p>
+              <form action={cancelInvoiceAction} className="mt-4 space-y-3">
+                <input type="hidden" name="invoiceId" value={invoice.id} />
+                <label className="block text-xs font-semibold text-slate-600">
+                  Cancellation Reason
+                  <textarea name="reason" required rows={3} placeholder="Required" className="mt-1 w-full rounded-xl border border-red-200 px-3 py-2 text-sm" />
+                </label>
+                <button className="w-full rounded-xl bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-800">
+                  Confirm Cancellation
+                </button>
+              </form>
+            </details>
+          ) : null}
 
           {invoice.note ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

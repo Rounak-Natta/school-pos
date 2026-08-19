@@ -24,6 +24,10 @@ export type ParsedProductImportRow = {
 export type ProductImportRowError = {
   rowNumber: number;
   error: string;
+  school?: string;
+  schoolCode?: string;
+  name?: string;
+  sku?: string;
 };
 
 export const PRODUCT_IMPORT_HEADERS = [
@@ -63,6 +67,9 @@ export type ParsedStudentImportRow = {
 export type StudentImportRowError = {
   rowNumber: number;
   error: string;
+  name?: string;
+  className?: string;
+  parentPhone?: string;
 };
 
 export const STUDENT_IMPORT_HEADERS = [

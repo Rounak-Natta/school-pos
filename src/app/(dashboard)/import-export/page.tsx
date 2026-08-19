@@ -17,6 +17,7 @@ type ImportExportPageProps = {
     import?: string;
     success?: string;
     failed?: string;
+    error?: string;
   }>;
 };
 
@@ -33,6 +34,53 @@ function formatDate(value: Date) {
 function safeCount(value?: string) {
   const parsed = Number(value ?? "0");
   return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : 0;
+}
+
+type ImportErrorDetail = {
+  rowNumber?: number;
+  error?: string;
+  school?: string;
+  schoolCode?: string;
+  name?: string;
+  sku?: string;
+  className?: string;
+  parentPhone?: string;
+};
+
+function getImportErrors(value: unknown): ImportErrorDetail[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === "object" && !Array.isArray(item),
+    )
+    .map((item) => ({
+      rowNumber:
+        typeof item.rowNumber === "number" && Number.isFinite(item.rowNumber)
+          ? item.rowNumber
+          : undefined,
+      error: typeof item.error === "string" ? item.error : "Unknown error",
+      school: typeof item.school === "string" ? item.school : undefined,
+      schoolCode:
+        typeof item.schoolCode === "string" ? item.schoolCode : undefined,
+      name: typeof item.name === "string" ? item.name : undefined,
+      sku: typeof item.sku === "string" ? item.sku : undefined,
+      className:
+        typeof item.className === "string" ? item.className : undefined,
+      parentPhone:
+        typeof item.parentPhone === "string" ? item.parentPhone : undefined,
+    }));
+}
+
+function importStatusLabel(input: {
+  successRows: number;
+  failedRows: number;
+  status: string;
+}) {
+  if (input.successRows > 0 && input.failedRows > 0) return "PARTIAL";
+  if (input.failedRows > 0) return "FAILED";
+  if (input.successRows > 0) return "COMPLETED";
+  return input.status;
 }
 
 export default async function ImportExportPage({
@@ -85,6 +133,7 @@ export default async function ImportExportPage({
   const successCount = safeCount(params.success);
   const failedCount = safeCount(params.failed);
   const hasResult = importType === "products" || importType === "students";
+  const importError = params.error?.trim() || "";
 
   return (
     <div className="space-y-6">
@@ -96,6 +145,14 @@ export default async function ImportExportPage({
           Excel tools for multi-school inventory and school-wise student records.
         </p>
       </div>
+
+      {importError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-950 shadow-sm" role="alert">
+          <p className="font-semibold">Import could not start</p>
+          <p className="mt-1 text-sm">{importError}</p>
+          <p className="mt-1 text-xs text-red-700">Fix the workbook/file and upload again. No stock rows were changed by this failed attempt.</p>
+        </div>
+      ) : null}
 
       {hasResult ? (
         <div
@@ -118,7 +175,7 @@ export default async function ImportExportPage({
               ? ` and ${failedCount} row${failedCount === 1 ? "" : "s"} failed.`
               : "."}
             {failedCount > 0
-              ? " Check Recent Imports for the recorded result before uploading again."
+              ? " Scroll to Recent Imports and open View row errors to see the exact Excel rows and reasons."
               : ""}
           </p>
         </div>
@@ -317,7 +374,79 @@ export default async function ImportExportPage({
                   {item.successRows}
                 </td>
                 <td className="px-4 py-3 text-red-600">{item.failedRows}</td>
-                <td className="px-4 py-3">{item.status}</td>
+                <td className="px-4 py-3">
+                  {(() => {
+                    const errors = getImportErrors(item.errorSummary);
+                    const displayStatus = importStatusLabel(item);
+
+                    return (
+                      <div className="min-w-[240px]">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            displayStatus === "COMPLETED"
+                              ? "bg-emerald-50 text-emerald-700"
+                              : displayStatus === "PARTIAL"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-red-50 text-red-700"
+                          }`}
+                        >
+                          {displayStatus}
+                        </span>
+
+                        {errors.length > 0 ? (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-xs font-semibold text-slate-700 hover:text-slate-950">
+                              View {errors.length} row error{errors.length === 1 ? "" : "s"}
+                            </summary>
+                            <div className="mt-2 max-h-72 overflow-auto rounded-xl border border-red-100 bg-red-50/60">
+                              <table className="w-full min-w-[680px] text-xs">
+                                <thead className="sticky top-0 bg-red-50 text-red-900">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left font-semibold">Excel Row</th>
+                                    <th className="px-3 py-2 text-left font-semibold">School</th>
+                                    <th className="px-3 py-2 text-left font-semibold">Item / Student</th>
+                                    <th className="px-3 py-2 text-left font-semibold">SKU / Details</th>
+                                    <th className="px-3 py-2 text-left font-semibold">Reason</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {errors.map((error, index) => (
+                                    <tr
+                                      key={`${item.id}-${error.rowNumber ?? index}-${index}`}
+                                      className="border-t border-red-100 align-top text-slate-700"
+                                    >
+                                      <td className="whitespace-nowrap px-3 py-2 font-semibold text-slate-950">
+                                        {error.rowNumber ?? "-"}
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        {error.school || error.schoolCode || "-"}
+                                      </td>
+                                      <td className="px-3 py-2">{error.name || "-"}</td>
+                                      <td className="px-3 py-2">
+                                        {error.sku ||
+                                          [error.className, error.parentPhone]
+                                            .filter(Boolean)
+                                            .join(" / ") ||
+                                          "-"}
+                                      </td>
+                                      <td className="px-3 py-2 font-medium text-red-800">
+                                        {error.error || "Unknown error"}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </details>
+                        ) : item.failedRows > 0 ? (
+                          <p className="mt-2 text-xs text-slate-500">
+                            Error details were not recorded for this older import.
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
+                </td>
                 <td className="px-4 py-3">
                   {item.uploadedBy?.email || "-"}
                 </td>

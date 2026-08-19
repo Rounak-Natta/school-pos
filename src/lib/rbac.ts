@@ -10,6 +10,7 @@ export enum Permission {
   VIEW_INVOICES = "VIEW_INVOICES",
   CANCEL_INVOICE = "CANCEL_INVOICE",
   RETURN_INVOICE = "RETURN_INVOICE",
+  RECEIVE_PAYMENT = "RECEIVE_PAYMENT",
 
   VIEW_REPORTS = "VIEW_REPORTS",
 
@@ -81,6 +82,13 @@ const PERMISSION_ROLES: Record<Permission, RoleName[]> = {
   [Permission.RETURN_INVOICE]: [
     RoleName.SUPER_ADMIN,
     RoleName.SCHOOL_ADMIN,
+    RoleName.ACCOUNTANT,
+  ],
+
+  [Permission.RECEIVE_PAYMENT]: [
+    RoleName.SUPER_ADMIN,
+    RoleName.SCHOOL_ADMIN,
+    RoleName.CASHIER,
     RoleName.ACCOUNTANT,
   ],
 

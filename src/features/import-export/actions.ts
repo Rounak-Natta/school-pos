@@ -5,9 +5,12 @@ import { redirect } from "next/navigation";
 import {
   ImportStatus,
   ImportType,
+  NotificationType,
+  RoleName,
   StockMovementType,
 } from "@/generated/prisma/client";
 import { writeAuditLog } from "@/features/audit/audit-service";
+import { notifySchoolUsers } from "@/features/notifications/notification-service";
 import {
   parseProductsImportBuffer,
   parseStudentsImportBuffer,
@@ -81,6 +84,18 @@ function resultRedirect(type: "products" | "students", success: number, failed: 
   redirect(`/import-export?${params.toString()}`);
 }
 
+function errorRedirect(type: "products" | "students", message: string): never {
+  const params = new URLSearchParams({
+    import: type,
+    error: message.slice(0, 500),
+  });
+  redirect(`/import-export?${params.toString()}`);
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Import could not be processed.";
+}
+
 export async function importProductsExcelAction(
   formData: FormData,
 ): Promise<void> {
@@ -91,7 +106,11 @@ export async function importProductsExcelAction(
   }
 
   const file = formData.get("file");
-  validateExcelFile(file);
+  try {
+    validateExcelFile(file);
+  } catch (error) {
+    errorRedirect("products", errorMessage(error));
+  }
 
   const allowedSchoolIds = access.isSuperAdmin
     ? undefined
@@ -122,9 +141,14 @@ export async function importProductsExcelAction(
     accessibleSchools.map((school) => [normalizeKey(school.name), school]),
   );
 
-  const rows = await parseProductsImportBuffer(
-    Buffer.from(await file.arrayBuffer()),
-  );
+  let rows: Awaited<ReturnType<typeof parseProductsImportBuffer>>;
+  try {
+    rows = await parseProductsImportBuffer(
+      Buffer.from(await file.arrayBuffer()),
+    );
+  } catch (error) {
+    errorRedirect("products", errorMessage(error));
+  }
 
   const importLog = await prisma.excelImport.create({
     data: {
@@ -322,6 +346,25 @@ export async function importProductsExcelAction(
             },
           });
         }
+
+        if (
+          row.reorderLevel > 0 &&
+          afterQty <= row.reorderLevel &&
+          (beforeQty > row.reorderLevel || beforeQty !== afterQty)
+        ) {
+          await notifySchoolUsers(tx, {
+            schoolId: school.id,
+            type: NotificationType.LOW_STOCK,
+            title: "Low stock after Excel import",
+            message: `${row.name}${row.sku ? ` (${row.sku})` : ""} has ${afterQty} left (reorder level ${row.reorderLevel}).`,
+            href: "/inventory",
+            roles: [
+              RoleName.SUPER_ADMIN,
+              RoleName.SCHOOL_ADMIN,
+              RoleName.INVENTORY_MANAGER,
+            ],
+          });
+        }
       });
 
       touchedSchoolIds.add(school.id);
@@ -332,6 +375,10 @@ export async function importProductsExcelAction(
       errors.push({
         rowNumber: row.rowNumber,
         error: error instanceof Error ? error.message : "Unknown error",
+        school: row.school || undefined,
+        schoolCode: row.schoolCode || undefined,
+        name: row.name || undefined,
+        sku: row.sku || undefined,
       });
     }
   }
@@ -385,11 +432,20 @@ export async function importStudentsExcelAction(
   });
 
   const file = formData.get("file");
-  validateExcelFile(file);
+  try {
+    validateExcelFile(file);
+  } catch (error) {
+    errorRedirect("students", errorMessage(error));
+  }
 
-  const rows = await parseStudentsImportBuffer(
-    Buffer.from(await file.arrayBuffer()),
-  );
+  let rows: Awaited<ReturnType<typeof parseStudentsImportBuffer>>;
+  try {
+    rows = await parseStudentsImportBuffer(
+      Buffer.from(await file.arrayBuffer()),
+    );
+  } catch (error) {
+    errorRedirect("students", errorMessage(error));
+  }
 
   const importLog = await prisma.excelImport.create({
     data: {
@@ -478,6 +534,9 @@ export async function importStudentsExcelAction(
       errors.push({
         rowNumber: row.rowNumber,
         error: error instanceof Error ? error.message : "Unknown error",
+        name: row.name || undefined,
+        className: row.className || undefined,
+        parentPhone: row.parentPhone || undefined,
       });
     }
   }

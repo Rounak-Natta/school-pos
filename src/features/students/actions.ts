@@ -55,6 +55,81 @@ export async function createStudentAction(formData: FormData) {
   redirect("/students");
 }
 
+
+export async function updateStudentAction(formData: FormData) {
+  const access = await getAccessScope();
+  const studentId = clean(formData.get("studentId"));
+  if (!studentId) throw new Error("Student is required.");
+
+  const existing = await prisma.student.findUnique({
+    where: { id: studentId },
+    select: {
+      id: true,
+      schoolId: true,
+      name: true,
+      className: true,
+      sectionName: true,
+      admissionNo: true,
+      rollNumber: true,
+      parentName: true,
+      parentPhone: true,
+      address: true,
+    },
+  });
+  if (!existing) throw new Error("Student not found.");
+  requirePermission(access, Permission.MANAGE_STUDENTS, existing.schoolId);
+
+  const input = studentFormSchema.parse({
+    schoolId: existing.schoolId,
+    name: clean(formData.get("name")),
+    className: clean(formData.get("className")),
+    sectionName: clean(formData.get("sectionName")),
+    admissionNo: clean(formData.get("admissionNo")),
+    rollNumber: clean(formData.get("rollNumber")),
+    parentName: clean(formData.get("parentName")),
+    parentPhone: clean(formData.get("parentPhone")),
+    address: clean(formData.get("address")),
+  });
+
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.student.update({
+      where: { id: studentId },
+      data: {
+        name: input.name,
+        className: input.className,
+        sectionName: nullable(input.sectionName ?? ""),
+        admissionNo: nullable(input.admissionNo ?? ""),
+        rollNumber: nullable(input.rollNumber ?? ""),
+        parentName: nullable(input.parentName ?? ""),
+        parentPhone: input.parentPhone,
+        address: nullable(input.address ?? ""),
+      },
+    });
+
+    await writeAuditLog(tx, {
+      userId: access.userId,
+      schoolId: existing.schoolId,
+      action: "UPDATE",
+      entity: "STUDENT",
+      entityId: studentId,
+      oldData: existing,
+      newData: {
+        name: updated.name,
+        className: updated.className,
+        sectionName: updated.sectionName,
+        admissionNo: updated.admissionNo,
+        rollNumber: updated.rollNumber,
+        parentName: updated.parentName,
+        parentPhone: updated.parentPhone,
+        address: updated.address,
+      },
+    });
+  });
+
+  revalidatePath("/students");
+  revalidatePath("/pos");
+}
+
 export async function toggleStudentAction(formData: FormData) {
   const access = await getAccessScope();
   const id = clean(formData.get("studentId"));

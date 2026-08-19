@@ -36,6 +36,11 @@ export async function processInvoiceReturnAction(formData: FormData) {
   });
   if (!invoice) throw new Error("Invoice not found.");
   if (invoice.status === InvoiceStatus.CANCELLED) throw new Error("Cancelled invoices cannot be returned.");
+  if (Number(invoice.balanceAmount) > 0) {
+    throw new Error(
+      "Settle the remaining invoice balance before processing a return or exchange.",
+    );
+  }
   requirePermission(access, Permission.RETURN_INVOICE, invoice.schoolId);
 
   const selected: Array<{ item: typeof invoice.items[number]; qty: number }> = [];
@@ -50,6 +55,22 @@ export async function processInvoiceReturnAction(formData: FormData) {
   if (!selected.length) throw new Error("Select at least one item to return or exchange.");
 
   const result = await prisma.$transaction(async (tx) => {
+    // Claim the invoice row before changing return quantities. This serializes
+    // returns against invoice cancellation so stock can never be restored twice
+    // by a return and a cancellation racing each other.
+    const invoiceClaim = await tx.invoice.updateMany({
+      where: {
+        id: invoiceId,
+        status: InvoiceStatus.PAID,
+      },
+      data: { updatedAt: new Date() },
+    });
+    if (invoiceClaim.count !== 1) {
+      throw new Error(
+        "Invoice status changed before the return could be processed. Refresh and try again.",
+      );
+    }
+
     // Re-read returned quantities inside the transaction to prevent duplicate concurrent returns.
     const freshItems = await tx.invoiceItem.findMany({
       where: { id: { in: selected.map(s => s.item.id) }, invoiceId },

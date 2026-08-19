@@ -75,12 +75,16 @@ export default async function TransferDetailPage({
             <button className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white">Dispatch & Deduct Stock</button>
           </form>
         ) : null}
-        {[TransferStatus.DISPATCHED, TransferStatus.IN_TRANSIT].includes(transfer.status) && canTo ? (
-          <form action={receiveTransferAction}>
-            <input type="hidden" name="transferId" value={transfer.id} />
-            <button className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Receive Stock</button>
-          </form>
-        ) : null}
+        {(transfer.status === TransferStatus.DISPATCHED ||
+  transfer.status === TransferStatus.IN_TRANSIT) &&
+canTo ? (
+  <form action={receiveTransferAction}>
+    <input type="hidden" name="transferId" value={transfer.id} />
+    <button className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">
+      Receive Stock
+    </button>
+  </form>
+) : null}
       </div>
 
       <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
