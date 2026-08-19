@@ -29,6 +29,10 @@ import {
 } from "@/lib/rbac";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const PRODUCT_IMPORT_BATCH_SIZE = 4;
+const PRODUCT_TRANSACTION_TIMEOUT_MS = 30_000;
+const PRODUCT_TRANSACTION_MAX_WAIT_MS = 10_000;
+const PRODUCT_TRANSACTION_ATTEMPTS = 3;
 const clean = (value: FormDataEntryValue | null) =>
   String(value ?? "").trim();
 const emptyToNull = (value?: string) => {
@@ -94,6 +98,51 @@ function errorRedirect(type: "products" | "students", message: string): never {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Import could not be processed.";
+}
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function isRetryableTransactionError(error: unknown) {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const message = String(candidate?.message ?? "").toLowerCase();
+
+  return (
+    candidate?.code === "P2028" ||
+    message.includes("expired transaction") ||
+    message.includes("transaction api error") ||
+    message.includes("timed out")
+  );
+}
+
+async function withProductTransactionRetry<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= PRODUCT_TRANSACTION_ATTEMPTS; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (
+        !isRetryableTransactionError(error) ||
+        attempt === PRODUCT_TRANSACTION_ATTEMPTS
+      ) {
+        throw error;
+      }
+
+      // Supabase/Vercel can occasionally stall a pooled transaction. Back off
+      // briefly and retry the whole row; the transaction has already rolled
+      // back, so the retry is safe and idempotent.
+      await sleep(300 * 2 ** (attempt - 1));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Product row transaction failed after retries.");
 }
 
 export async function importProductsExcelAction(
@@ -168,8 +217,12 @@ export async function importProductsExcelAction(
   const touchedSchoolIds = new Set<string>();
   const touchedSchoolNames = new Set<string>();
 
-  for (const row of rows) {
-    try {
+  for (let offset = 0; offset < rows.length; offset += PRODUCT_IMPORT_BATCH_SIZE) {
+    const batch = rows.slice(offset, offset + PRODUCT_IMPORT_BATCH_SIZE);
+
+    await Promise.all(
+      batch.map(async (row) => {
+        try {
       if (!row.school && !row.schoolCode) {
         throw new Error("School or School Code is missing.");
       }
@@ -214,18 +267,26 @@ export async function importProductsExcelAction(
         throw new Error("Stock quantity cannot be negative.");
       }
 
-      const gstRate = Number(row.gstRate || 0);
-      if (!Number.isFinite(gstRate) || gstRate < 0 || gstRate > 100) {
+      const gstRate =
+        row.gstRate === undefined ? undefined : Number(row.gstRate);
+      if (
+        gstRate !== undefined &&
+        (!Number.isFinite(gstRate) || gstRate < 0 || gstRate > 100)
+      ) {
         throw new Error("GST rate must be between 0 and 100.");
       }
 
-      await prisma.$transaction(async (tx) => {
+      const stockResult = await withProductTransactionRetry(() =>
+        prisma.$transaction(
+          async (tx) => {
         const product = await tx.product.upsert({
           where: {
             schoolId_name: { schoolId: school.id, name: row.name },
           },
           update: {
-            category: emptyToNull(row.category),
+            ...(row.category !== undefined
+              ? { category: emptyToNull(row.category) }
+              : {}),
             isActive: true,
             deletedAt: null,
           },
@@ -249,27 +310,40 @@ export async function importProductsExcelAction(
           size: emptyToNull(row.size),
         });
 
-        const existingVariant = await tx.productVariant.findUnique({
-          where: { variantKey },
-          select: { id: true },
-        });
-
         const variant = await tx.productVariant.upsert({
           where: { variantKey },
           update: {
             sku: emptyToNull(row.sku),
-            barcode: emptyToNull(row.barcode),
+            ...(row.barcode !== undefined
+              ? { barcode: emptyToNull(row.barcode) }
+              : {}),
             unit: row.unit || "PCS",
-            className: emptyToNull(row.className),
-            sectionName: emptyToNull(row.sectionName),
-            color: emptyToNull(row.color),
-            size: emptyToNull(row.size),
+            ...(row.className !== undefined
+              ? { className: emptyToNull(row.className) }
+              : {}),
+            ...(row.sectionName !== undefined
+              ? { sectionName: emptyToNull(row.sectionName) }
+              : {}),
+            ...(row.color !== undefined
+              ? { color: emptyToNull(row.color) }
+              : {}),
+            ...(row.size !== undefined
+              ? { size: emptyToNull(row.size) }
+              : {}),
             salePrice: row.salePrice,
-            mrp: row.mrp,
-            costPrice: row.costPrice,
-            wholesaleRate: row.wholesaleRate,
-            gstRate: row.gstRate,
-            hsnCode: emptyToNull(row.hsnCode),
+            ...(row.mrp !== undefined ? { mrp: row.mrp } : {}),
+            ...(row.costPrice !== undefined
+              ? { costPrice: row.costPrice }
+              : {}),
+            ...(row.wholesaleRate !== undefined
+              ? { wholesaleRate: row.wholesaleRate }
+              : {}),
+            ...(row.gstRate !== undefined
+              ? { gstRate: row.gstRate }
+              : {}),
+            ...(row.hsnCode !== undefined
+              ? { hsnCode: emptyToNull(row.hsnCode) }
+              : {}),
             isActive: true,
           },
           create: {
@@ -286,7 +360,7 @@ export async function importProductsExcelAction(
             mrp: row.mrp,
             costPrice: row.costPrice,
             wholesaleRate: row.wholesaleRate,
-            gstRate: row.gstRate,
+            gstRate: row.gstRate ?? "0.00",
             hsnCode: emptyToNull(row.hsnCode),
             isActive: true,
           },
@@ -300,11 +374,13 @@ export async function importProductsExcelAction(
               productVariantId: variant.id,
             },
           },
-          select: { quantity: true },
+          select: { quantity: true, reorderLevel: true },
         });
 
         const beforeQty = existingStock?.quantity ?? 0;
         const afterQty = row.quantity;
+        const reorderLevel =
+          row.reorderLevel ?? existingStock?.reorderLevel ?? 0;
 
         await tx.inventoryStock.upsert({
           where: {
@@ -315,13 +391,13 @@ export async function importProductsExcelAction(
           },
           update: {
             quantity: afterQty,
-            reorderLevel: row.reorderLevel,
+            reorderLevel,
           },
           create: {
             schoolId: school.id,
             productVariantId: variant.id,
             quantity: afterQty,
-            reorderLevel: row.reorderLevel,
+            reorderLevel,
           },
         });
 
@@ -331,7 +407,7 @@ export async function importProductsExcelAction(
               schoolId: school.id,
               productVariantId: variant.id,
               type:
-                !existingVariant && afterQty > 0
+                !existingStock && afterQty > 0
                   ? StockMovementType.OPENING_STOCK
                   : afterQty > beforeQty
                     ? StockMovementType.ADJUSTMENT_IN
@@ -347,40 +423,77 @@ export async function importProductsExcelAction(
           });
         }
 
-        if (
-          row.reorderLevel > 0 &&
-          afterQty <= row.reorderLevel &&
-          (beforeQty > row.reorderLevel || beforeQty !== afterQty)
-        ) {
-          await notifySchoolUsers(tx, {
-            schoolId: school.id,
-            type: NotificationType.LOW_STOCK,
-            title: "Low stock after Excel import",
-            message: `${row.name}${row.sku ? ` (${row.sku})` : ""} has ${afterQty} left (reorder level ${row.reorderLevel}).`,
-            href: "/inventory",
-            roles: [
-              RoleName.SUPER_ADMIN,
-              RoleName.SCHOOL_ADMIN,
-              RoleName.INVENTORY_MANAGER,
-            ],
-          });
+            return { beforeQty, afterQty, reorderLevel };
+          },
+          {
+            maxWait: PRODUCT_TRANSACTION_MAX_WAIT_MS,
+            timeout: PRODUCT_TRANSACTION_TIMEOUT_MS,
+          },
+        ),
+      );
+
+      // Do not make a successful stock update fail just because notification
+      // delivery is slow. Keep notification work outside the core row
+      // transaction and treat it as best-effort.
+      if (
+        stockResult.reorderLevel > 0 &&
+        stockResult.afterQty <= stockResult.reorderLevel &&
+        (stockResult.beforeQty > stockResult.reorderLevel ||
+          stockResult.beforeQty !== stockResult.afterQty)
+      ) {
+        try {
+          await prisma.$transaction(
+            async (tx) =>
+              notifySchoolUsers(tx, {
+                schoolId: school.id,
+                type: NotificationType.LOW_STOCK,
+                title: "Low stock after Excel import",
+                message: `${row.name}${row.sku ? ` (${row.sku})` : ""} has ${stockResult.afterQty} left (reorder level ${stockResult.reorderLevel}).`,
+                href: "/inventory",
+                roles: [
+                  RoleName.SUPER_ADMIN,
+                  RoleName.SCHOOL_ADMIN,
+                  RoleName.INVENTORY_MANAGER,
+                ],
+              }),
+            { maxWait: 5_000, timeout: 10_000 },
+          );
+        } catch (notificationError) {
+          console.warn(
+            "Low-stock notification skipped after successful Excel row import:",
+            errorMessage(notificationError),
+          );
         }
-      });
+      }
 
       touchedSchoolIds.add(school.id);
       touchedSchoolNames.add(school.name);
       successRows++;
     } catch (error) {
       failedRows++;
-      errors.push({
-        rowNumber: row.rowNumber,
-        error: error instanceof Error ? error.message : "Unknown error",
-        school: row.school || undefined,
-        schoolCode: row.schoolCode || undefined,
-        name: row.name || undefined,
-        sku: row.sku || undefined,
-      });
-    }
+          errors.push({
+            rowNumber: row.rowNumber,
+            error: error instanceof Error ? error.message : "Unknown error",
+            school: row.school || undefined,
+            schoolCode: row.schoolCode || undefined,
+            name: row.name || undefined,
+            sku: row.sku || undefined,
+          });
+        }
+      }),
+    );
+
+    // Persist progress after every batch. If the hosting platform interrupts the
+    // request, Recent Imports still shows how far the workbook got instead of
+    // staying at 0 / 0 forever.
+    await prisma.excelImport.update({
+      where: { id: importLog.id },
+      data: {
+        successRows,
+        failedRows,
+        errorSummary: errors.length ? errors : undefined,
+      },
+    });
   }
 
   await prisma.$transaction(async (tx) => {
