@@ -3,7 +3,6 @@ import { logoutAction } from "@/features/auth/actions";
 import { prisma } from "@/lib/prisma";
 import { getAccessScope, getPermissionKeys } from "@/lib/rbac";
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import { Analytics } from "@vercel/analytics/next";
 
 export default async function DashboardLayout({
   children,
@@ -31,7 +30,6 @@ export default async function DashboardLayout({
         {children}
       </DashboardShell>
 
-      <Analytics />
       <SpeedInsights />
     </>
   );
